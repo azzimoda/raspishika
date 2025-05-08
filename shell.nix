@@ -16,9 +16,11 @@ pkgs.mkShell {
     export GEM_PATH=$GEM_HOME
     export PATH=$PATH:$GEM_PATH
 
+    export TELEGRAM_BOT_TOKEN=$(cat .token)
+
     which ruby
-    which bundle
-    echo GEM_HOME $GEM_HOME
+    echo GEM_HOME=$GEM_HOME
+    echo TELEGRAM_BOT_TOKEN=$TELEGRAM_BOT_TOKEN
     echo "Welcome to the Nix environment for $(pwd)!"
   '';
 }
