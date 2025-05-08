@@ -8,13 +8,13 @@ require 'timeout'
 BASE_URL = 'https://mnokol.tyuiu.ru'.freeze
 
 WEEKDAY_SHORTS = {
-  'понедельник': 'пн',
-  'вторник': 'вт',
-  'среда': 'ср',
-  'четверг': 'чт',
-  'пятница': 'пт',
-  'суббота': 'сб',
-  'воскресенье': 'вс' # it's useless btw
+  'понедельник' => 'пн',
+  'вторник' => 'вт',
+  'среда' => 'ср',
+  'четверг' => 'чт',
+  'пятница' => 'пт',
+  'суббота' => 'сб',
+  'воскресенье' => 'вс' # it's useless btw
 }.freeze
 
 class ScheduleParser
@@ -105,7 +105,7 @@ class ScheduleParser
       logger&.info "Waiting for table..."
       _ = wait.until { driver.find_element(id: 'main_table') }
       html = driver.page_source
-      File.write('schedule.html', html)
+      File.write('.debug/schedule.html', html)
 
       doc = Nokogiri::HTML html
 
@@ -120,30 +120,27 @@ class ScheduleParser
 
   def parse_schedule_table(table)
     return [] unless table
-  
-    # First, extract the day headers to get dates and day names
+
     header_row = table.css('tr').first
     day_headers = header_row.css('td:nth-child(n+3)').map do |header|
-      # parts = header.text.strip.split("\n")
       parts = header.children.map { |node| node.text.strip }.reject(&:empty?)
-      logger.debug "Date parts: #{parts.join', '}"
       {
         date: parts[0]&.strip,
         weekday: parts[1]&.strip,
         week_type: parts[2]&.strip
       }
     end
-  
+
     schedule = []
     table.css('tr:not(:first-child)').each do |row|
       next if row.css('th').any? # skip header rows if any
-  
+
       time_cell = row.at_css('td:first-child')
       next unless time_cell # skip if no time cell
-  
+
       pair_number = time_cell.text.strip
       time_range = row.at_css('td:nth-child(2)').text.strip
-  
+
       time_slot = {pair_number: pair_number, time_range: time_range, days: []}
       row.css('td:nth-child(n+3)').each_with_index do |day_cell, day_index|
         day_info = day_headers[day_index] || {}
@@ -227,18 +224,25 @@ end
 
 def format_schedule_days(schedule)
   schedule.map do |day|
-    day_head = "#{day[:weekday][0,2]}, #{day[:date]} (#{day[:week_type]} неделя)"
+    weekday = WEEKDAY_SHORTS[day[:weekday].downcase].upcase
+    day_head = "#{weekday}, #{day[:date]} (#{day[:week_type]} неделя)"
     pairs = day[:pairs].map.with_index do |pair, index|
+      next if pair[:subjects] && pair[:subjects][0][:discipline].strip.empty?
+      classroom = ""
+
       name = if pair[:type] == 'subject'
         pair[:subjects][0].values.join ' '
+        classroom = " — #{pair[:subjects][0][:classroom]}"
+        "\n  #{pair[:subjects][0][:discipline]}, #{pair[:subjects][0][:teacher]}"
       elsif pair[:type] == 'event'
-        pair[:subject]
+        " — #{pair[:subject]}"
       end
-      "#{pair[:pair_number]} — #{pair[:time_range]} — #{name}"
-    end
+
+      "  #{pair[:pair_number]} — #{pair[:time_range]}#{classroom}#{name}"
+    end.compact
 
     "#{day_head}:\n" + pairs.join("\n")
-  end.join("\n")
+  end.join("\n\n")
 end
 
 def pp_schedule(schedule)
