@@ -11,8 +11,8 @@ module DebugCommands
 
   def self.fetch_schedule(bot:, sid: 28703, gr: 427)
     bot.logger.debug "Fetching schedule for sid=#{sid}, gr=#{gr}"
-    schedule = parser.fetch_schedule({sid: sid, gr: gr})
-    format_schedule_days transform_schedule_to_days schedule
+    schedule = Schedule.from_raw parser.fetch_schedule({sid: sid, gr: gr})
+    schedule.format
   end
 
   def self.set_user_info(user:, **)

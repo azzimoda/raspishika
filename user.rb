@@ -13,10 +13,7 @@ class User
     end
 
     def delete user
-      pp @users
-      # @users.find_index { |_, v| v == user }.tap { |i| @users.delete i if i }
       @users.delete_if { |id, _| id == user.id }
-      pp @users
     end
 
     def backup

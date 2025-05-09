@@ -1,7 +1,7 @@
 require 'minitest/autorun'
 require 'minitest/spec'
 
-describe "General" do
+describe "Parser" do
   before do
     require 'logger'
     require 'nokogiri'
@@ -13,9 +13,9 @@ describe "General" do
     
     require './parser'
 
-    @logger = Logger.new($stderr)
+    @logger = Logger.new($stdout)
     @parser = ScheduleParser.new(logger: @logger)
-    @test_schedule_table_html = File.read('./schedule.html')
+    @test_schedule_table_html = File.read('./.debug/schedule.html.html')
   end
 
   it 'should fetch schedule html' do
@@ -44,18 +44,40 @@ describe "General" do
   end
 
   it 'should fetch schedule table' do
-    schedule = @parser.fetch_schedule({sid: 28703, gr: 427})
-    # pp schedule
-    # pp_schedule schedule
-    # pp transform_schedule_to_days schedule
-    puts format_schedule_days transform_schedule_to_days schedule
+    schedule = Schedule.from_raw @parser.fetch_schedule({sid: 28703, gr: 427})
+    # pp schedule.transform
+    puts schedule.format
   end
 
   it 'should parse schedule table' do
     schedule = @parser.parse_schedule_table Nokogiri::HTML @test_schedule_table_html
-    # pp schedule
-    # pp_schedule schedule
-    # pp transform_schedule_to_days schedule
-    puts format_schedule_days transform_schedule_to_days schedule
+    # pp schedule.transform
+    puts schedule.format
+  end
+end
+
+describe 'Schedule model' do
+  before do
+    require 'logger'
+    require 'nokogiri'
+    require 'open-uri'
+    require 'uri'
+    require 'cgi'
+    require 'selenium-webdriver'
+    require 'timeout'
+
+    require './parser'
+    require './schedule'
+
+    @logger = Logger.new $stdout
+    @parser = ScheduleParser.new(logger: @logger)
+    @test_schedule_table_html = File.read('./.debug/schedule.html')
+    @test_schedule_data = @parser.parse_schedule_table Nokogiri::HTML @test_schedule_table_html
+  end
+
+  it 'should select current pair from schedule' do
+    @schedule = Schedule.from_raw @test_schedule_data
+    @current_pair = @schedule.now
+    @logger.debug @current_pair.inspect
   end
 end

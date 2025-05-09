@@ -128,6 +128,8 @@ class ScheduleParser
   def parse_schedule_table(table)
     return nil unless table
 
+    logger&.info "Parsing html table..."
+
     header_row = table.css('tr').first
     day_headers = header_row.css('td:nth-child(n+3)').map do |header|
       parts = header.children.map { |node| node.text.strip }.reject(&:empty?)
@@ -152,7 +154,6 @@ class ScheduleParser
       row.css('td:nth-child(n+3)').each_with_index do |day_cell, day_index|
         day_info = day_headers[day_index] || {}
         day_info[:replaced] = day_cell.css('table.zamena').any? # day_cell.has_class? 'zamena'
-        pp day_info
         # logger.debug "Day #{day_info[:date]} id replaced" if day_info[:replaced]
 
         time_slot[:days] << parse_day_entry(day_cell, day_info)
@@ -183,59 +184,4 @@ class ScheduleParser
        subject: subject}.merge day_info
     end
   end
-end
-
-def transform_schedule_to_days(schedule)
-  return [] if schedule.empty?
-
-  # Initialize array with one entry per day (based on first time slot's days count)
-  days_count = schedule.first[:days].count
-  days_schedule = Array.new(days_count) { { pairs: [] } }
-
-  schedule[0][:days].each_with_index do |day_info, day_index|
-    days_schedule[day_index].merge! day_info.slice(:date, :weekday, :week_type)
-  end
-
-  schedule.each do |time_slot|
-    time_slot[:days].each_with_index do |day_info, day_index|
-      # Create a time slot entry for this day
-      days_schedule[day_index][:pairs] << {
-        pair_number: time_slot[:pair_number],
-        time_range: time_slot[:time_range],
-    }.merge(day_info.slice(:type, :subject, :replaced))
-    end
-  end
-
-  days_schedule
-end
-
-def format_schedule_days(schedule)
-  schedule.map do |day|
-    weekday = WEEKDAY_SHORTS[day[:weekday].downcase].upcase
-    day_head = "#{weekday}, #{day[:date]} (#{day[:week_type]} неделя)"
-    pairs = day[:pairs].map.with_index do |pair, index|
-      next if pair[:subject][:discipline]&.strip&.empty?
-
-      classroom = ""
-      name = if pair[:type] == 'subject'
-        classroom = " — #{pair[:subject][:classroom]}"
-        teacher = if (parts = pair[:subject][:teacher].split).size == 3
-          "#{parts.first} #{parts[1][0]}.#{parts[2][0]}."
-        else
-          pair[:subject][:teacher]
-        end
-        "\n  #{pair[:subject][:discipline]}, #{teacher}"
-      elsif pair[:type] == 'event'
-        " — #{pair[:subject][:discipline]}"
-      end
-
-      "  #{pair[:pair_number]} — #{pair[:time_range]}#{classroom}#{name}"
-    end.compact
-
-    "#{day_head}:\n" + pairs.join("\n")
-  end.join("\n\n")
-end
-
-def pp_schedule_days(schedule)
-  puts format_schedule_days schedule
 end

@@ -15,7 +15,6 @@ module ImageGenerator
   private
 
   def self.generate_html(schedule, group)
-    # pp schedule
     <<~HTML
     <!DOCTYPE html>
     <html>

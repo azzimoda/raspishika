@@ -206,11 +206,12 @@ class RaspishikaBot
     if (group_info = groups[message.text])
       user.department = group_info[:sid]
       user.group = group_info[:gr]
+      user.group_name = message.text
 
       schedule = Cache.fetch(:"schedule_#{user.department}_#{user.group}", expires_in: 300) do
         @parser.fetch_schedule group_info.merge({group: message.text})
       end
-      schedule = format_schedule_days transform_schedule_to_days schedule unless schedule.is_a? String
+      schedule = Schedule.from_raw(schedule).format unless schedule.is_a? String
       unless schedule.strip.empty?
         text = schedule
       else
@@ -222,11 +223,6 @@ class RaspishikaBot
       # @bot.api.edit_message_text(
       #   chat_id: sent_message.chat.id,
       #   message_id: sent_message.message_id,
-      #   text: text,
-      #   reply_markup: DEFAULT_REPLY_MARKUP
-      # )
-      # @bot.api.send_message(
-      #   chat_id: message.chat.id,
       #   text: text,
       #   reply_markup: DEFAULT_REPLY_MARKUP
       # )
@@ -274,7 +270,7 @@ class RaspishikaBot
     schedule = Cache.fetch(:schedule, expires_in: 300) do
       @parser.fetch_schedule user.group_info.merge({group: user.group_name})
     end
-    text = format_schedule_days Schedule.new(schedule).week[0,2]
+    text = Schedule.from_raw(schedule).days(0, 2).format
     @bot.api.send_message(
       chat_id: message.chat.id,
       text: text,
@@ -287,11 +283,15 @@ class RaspishikaBot
       bot.api.send_message(chat_id: message.chat.id, text: "Группа не выбрана")
       return configure_group(message, user)
     end
-
-    # TODO: Next pairs
+    
+    schedule = Cache.fetch(:schedule, expires_in: 300) do
+      # TODO: Add group_name to user.group_info EVERYWHERE.
+      @parser.fetch_schedule user.group_info.merge({group: user.group_name})
+    end
+    text = Schedule.from_raw(schedule).left.format
     @bot.api.send_message(
       chat_id: message.chat.id,
-      text: "Не реализовано",
+      text: text,
       reply_markup: DEFAULT_REPLY_MARKUP
     )
   end
