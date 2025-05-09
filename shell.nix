@@ -18,9 +18,9 @@ pkgs.mkShell {
 
     export TELEGRAM_BOT_TOKEN=$(cat .token)
 
-    md -p .data
-    md -p .cache
-    md -p .debug
+    mkdir -p .data
+    mkdir -p .cache
+    mkdir -p .debug
 
     which ruby
     echo GEM_HOME=$GEM_HOME
