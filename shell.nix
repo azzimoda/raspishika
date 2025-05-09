@@ -18,6 +18,10 @@ pkgs.mkShell {
 
     export TELEGRAM_BOT_TOKEN=$(cat .token)
 
+    md -p .data
+    md -p .cache
+    md -p .debug
+
     which ruby
     echo GEM_HOME=$GEM_HOME
     echo TELEGRAM_BOT_TOKEN=$TELEGRAM_BOT_TOKEN
