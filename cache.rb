@@ -9,6 +9,7 @@ module Cache
         entry[:value]
       else
         @data[key] = { value: block.call, timestamp: Time.now }
+        @data[key][:value]
       end
     end
   end

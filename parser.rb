@@ -5,7 +5,7 @@ require 'cgi'
 require 'selenium-webdriver'
 require 'timeout'
 
-BASE_URL = 'https://mnokol.tyuiu.ru'.freeze
+require './image_generator'
 
 WEEKDAY_SHORTS = {
   'понедельник' => 'пн',
@@ -18,6 +18,8 @@ WEEKDAY_SHORTS = {
 }.freeze
 
 class ScheduleParser
+  BASE_URL = 'https://mnokol.tyuiu.ru'.freeze
+
   def initialize logger: nil
     @logger = logger
     @departments = {}
@@ -40,7 +42,6 @@ class ScheduleParser
     end
 
     logger&.debug @departments
-
     @departments
   rescue => e
     logger&.error "Error fetching departments: #{e.message}"
@@ -108,15 +109,19 @@ class ScheduleParser
       File.write('.debug/schedule.html', html)
 
       doc = Nokogiri::HTML html
-
-      parse_schedule_table(doc.at_css('table#main_table')) || "Расписание не найдено"
+      schedule = parse_schedule_table(doc.at_css('table#main_table')) || "Расписание не найдено"
+      ImageGenerator.generate(driver, schedule, **group_info)
+      schedule
     rescue => e
-      logger&.error "Error fetching schedule: #{e.message}"
+      logger&.error "Error fetching schedule: #{e.detailed_message}"
+      pp e.backtrace
       "Не удалось загрузить расписание"
     ensure
       driver&.quit
     end
   end
+
+  private
 
   def parse_schedule_table(table)
     return [] unless table
@@ -133,10 +138,10 @@ class ScheduleParser
 
     schedule = []
     table.css('tr:not(:first-child)').each do |row|
-      next if row.css('th').any? # skip header rows if any
+      next if row.css('th').any?
 
       time_cell = row.at_css('td:first-child')
-      next unless time_cell # skip if no time cell
+      next unless time_cell
 
       pair_number = time_cell.text.strip
       time_range = row.at_css('td:nth-child(2)').text.strip
@@ -144,16 +149,15 @@ class ScheduleParser
       time_slot = {pair_number: pair_number, time_range: time_range, days: []}
       row.css('td:nth-child(n+3)').each_with_index do |day_cell, day_index|
         day_info = day_headers[day_index] || {}
+        day_info[:replaced] = day_cell.css('table.zamena').any? # day_cell.has_class? 'zamena'
+        logger.debug "Day #{day_info[:date]} id replaced" if day_info[:replaced]
 
-        # Check for event cells (like holidays)
         time_slot[:days] << parse_day_entry(day_cell, day_info)
       end
       schedule << time_slot
     end
     schedule
   end
-
-  private
 
   def parse_day_entry day_cell, day_info
     if day_cell['class']&.include? 'event'
@@ -162,38 +166,25 @@ class ScheduleParser
        weekday: day_info[:weekday],
        week_type: day_info[:week_type],
        type: 'event',
-       subject: day_cell.text.strip}
+       subject: {discipline: day_cell.text.strip}}
     elsif day_cell['class']&.include? 'head_urok_praktik'
       # Practice
       {date: day_info[:date],
-        weekday: day_info[:weekday],
-        week_type: day_info[:week_type],
-        type: 'subject',
-        subjects: [{discipline: day_cell.text.strip, teacher: nil, classroom: nil}]}
+       weekday: day_info[:weekday],
+       week_type: day_info[:week_type],
+       type: 'subject',
+       subject: {discipline: day_cell.text.strip}}
     else
-      # Regular pair
-      # TODO: Get rid of array, there can be only one pair
-      subjects = day_cell.css('div.pair').map do |pair|
-        {discipline: pair.at_css('.disc')&.text&.strip,
-          teacher: pair.at_css('.prep')&.text&.strip,
-          classroom: pair.at_css('.cab')&.text&.strip}
-      end
-
-      if subjects.empty?
-        discipline = day_cell.at_css('.disc')&.text&.strip
-        teacher = day_cell.at_css('.prep')&.text&.strip
-        classroom = day_cell.at_css('.cab')&.text&.strip
-
-        if discipline || teacher || classroom
-          subjects = [{ discipline: discipline, teacher: teacher, classroom: classroom }]
-        end
-      end
-
+      subject = {
+        discipline: day_cell.at_css('.disc')&.text&.strip,
+        teacher: day_cell.at_css('.prep')&.text&.strip,
+        classroom: day_cell.at_css('.cab')&.text&.strip
+      }
       {date: day_info[:date],
-        weekday: day_info[:weekday],
-        week_type: day_info[:week_type],
-        type: subjects.any? ? 'subject' : 'empty',
-        subjects: subjects}
+       weekday: day_info[:weekday],
+       week_type: day_info[:week_type],
+       type: subject[:discipline].empty? ? 'empty' : 'subject',
+       subject: subject}
     end
   end
 end
@@ -215,7 +206,7 @@ def transform_schedule_to_days(schedule)
       days_schedule[day_index][:pairs] << {
         pair_number: time_slot[:pair_number],
         time_range: time_slot[:time_range],
-    }.merge(day_info.slice(:type, :subject, :subjects))
+    }.merge(day_info.slice(:type, :subject))
     end
   end
 
@@ -227,15 +218,19 @@ def format_schedule_days(schedule)
     weekday = WEEKDAY_SHORTS[day[:weekday].downcase].upcase
     day_head = "#{weekday}, #{day[:date]} (#{day[:week_type]} неделя)"
     pairs = day[:pairs].map.with_index do |pair, index|
-      next if pair[:subjects] && pair[:subjects][0][:discipline].strip.empty?
-      classroom = ""
+      next if pair[:subject][:discipline]&.strip&.empty?
 
+      classroom = ""
       name = if pair[:type] == 'subject'
-        pair[:subjects][0].values.join ' '
-        classroom = " — #{pair[:subjects][0][:classroom]}"
-        "\n  #{pair[:subjects][0][:discipline]}, #{pair[:subjects][0][:teacher]}"
+        classroom = " — #{pair[:subject][:classroom]}"
+        teacher = if (parts = pair[:subject][:teacher].split).size == 3
+          "#{parts.first} #{parts[1][0]}.#{parts[2][0]}."
+        else
+          pair[:subject][:teacher]
+        end
+        "\n  #{pair[:subject][:discipline]}, #{teacher}"
       elsif pair[:type] == 'event'
-        " — #{pair[:subject]}"
+        " — #{pair[:subject][:discipline]}"
       end
 
       "  #{pair[:pair_number]} — #{pair[:time_range]}#{classroom}#{name}"
@@ -243,25 +238,6 @@ def format_schedule_days(schedule)
 
     "#{day_head}:\n" + pairs.join("\n")
   end.join("\n\n")
-end
-
-def pp_schedule(schedule)
-  schedule.each do |time_slot|
-    puts "Time: #{time_slot[:time_range]}"
-    time_slot[:days].each do |day_entry|
-      puts "\tDate: #{day_entry[:date]}, Day: #{day_entry[:weekday]}, Week Type: #{day_entry[:week_type]}"
-      if day_entry[:type] == 'subject'
-        day_entry[:subjects].each do |subject|
-          puts "\t\tSubject: #{subject[:discipline]}, Teacher: #{subject[:teacher]}, Classroom: #{subject[:classroom]}"
-        end
-      elsif day_entry[:type] == 'empty'
-        puts "\t\tEmpty"
-      elsif day_entry[:type] == 'event'
-        puts "\t\tEvent: #{day_entry[:subject]}"
-      end
-      puts
-    end
-  end
 end
 
 def pp_schedule_days(schedule)
