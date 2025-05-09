@@ -1,3 +1,5 @@
+require './user'
+
 module DebugCommands
   def self.user_info(bot:, user:, message:)
     bot.logger.debug "User info: #{user.inspect}"
@@ -16,5 +18,9 @@ module DebugCommands
   def self.set_user_info(user:, **)
     user.department = '28703'
     user.group = '427'
+  end
+
+  def self.delete_user(user:, **)
+    User.delete user
   end
 end

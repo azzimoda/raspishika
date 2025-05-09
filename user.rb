@@ -9,7 +9,14 @@ class User
 
     def [] id
       logger&.info "New user: #{id}" unless @users[id.to_s]
-      @users[id.to_s] ||= new
+      @users[id.to_s] ||= new id.to_s
+    end
+
+    def delete user
+      pp @users
+      # @users.find_index { |_, v| v == user }.tap { |i| @users.delete i if i }
+      @users.delete_if { |id, _| id == user.id }
+      pp @users
     end
 
     def backup
@@ -21,7 +28,7 @@ class User
     def restore
       logger&.info "Restoring users..."
       data = JSON.parse(File.read(BACKUP_FILE), symbolize_names: true).transform_keys(&:to_s)
-      @users = data.transform_values { |data| new(**data) }
+      @users = data.map { |id, data| [id.to_s, new(id, **data)] }.to_h
       logger&.info "Restored #{@users.size} users"
     rescue Errno::ENOENT, JSON::ParserError => e
       logger&.error "Failed to restore users: #{e.detailed_message}"
@@ -29,10 +36,12 @@ class User
     end
   end
 
-  def initialize(department: nil, group: nil, timer: nil)
+  def initialize(id, department: nil, group: nil, group_name: nil, timer: nil)
+    @id = id
     @state = :default
     @department = department
     @group = group
+    @group_name = group_name
     # like { type: :once, time: '18:00' } or { type: :before } or nil
     @timer = timer
     @departments = []
@@ -40,14 +49,15 @@ class User
     @department_url = nil
     @temp_group = nil
   end
-  attr_accessor :state, :group, :timer, :departments, :department, :department_url, :groups, :temp_group
+  attr_accessor :id, :state, :group, :group_name, :timer, :departments,
+    :department, :department_url, :groups, :temp_group
 
   def group_info
     {sid: @department, gr: @group}
   end
 
   def to_h
-    {department: @department, group: @group, timer: @timer}
+    {department: @department, group: @group, group_name: @group_name, timer: @timer}
   end
   
   def to_json(*)

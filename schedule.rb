@@ -15,9 +15,20 @@ class Schedule
   end
 
   def pair n, d=0
-    now Time.now
     day_schedule = day d
-    day_schedule[:pairs][n].merge day_schedule.slice(:date, :weekday, :week_type)
+    day_schedule[:pairs][n].merge day_schedule.slice(:date, :weekday, :week_type, :replaced)
+  end
+
+  def now
+    day_schedule = day 0
+    times = day_schedule[:pairs].map do |pair|
+      m = p pair[:time_range].match %r(^(\d{1,2}:\d{2}).+?(\d{1,2}:\d{2})$)
+      p [Time.parse(m[1]), Time.parse(m[2])]
+    end
+    time = p Time.now
+    if (index = times.find_index { |t| t[0] <= time && time <= t[1] })
+      pair index
+    end
   end
 
   def next_pair

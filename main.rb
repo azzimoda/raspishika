@@ -24,7 +24,7 @@ class RaspishikaBot
     ["Сегодня/Завтра", "Неделя"],
     ["Выбрать другую группу", "Задать таймер"],
   ]
-  DEFAULT_KEYBOARD.push ["/debug user_info"] if ENV["DEBUG_CM"] # "/debug set_user_info"
+  DEFAULT_KEYBOARD.push ["/debug user_info", "/debug set_user_info", "/debug delete_user"] if ENV["DEBUG_CM"]
   DEFAULT_KEYBOARD.freeze
   DEFAULT_REPLY_MARKUP = {
     keyboard: DEFAULT_KEYBOARD,
@@ -54,7 +54,10 @@ class RaspishikaBot
           {command: 'set_group', description: 'Выбрать группу'},
           {command: 'set_timer', description: 'Задать таймер'},
           {command: 'off_timer', description: 'Выключить таймер'},
-          {command: 'cancel', description: 'Отменить действие'}
+          {command: 'cancel', description: 'Отменить действие'},
+          {command: 'left', description: 'Оставшиеся пары'},
+          {command: 'today_tomorrow', description: 'Расписание на сегодня и завтра'},
+          {command: 'week', description: 'Расписание на неделю'},
         ]
       )
 
@@ -85,7 +88,7 @@ class RaspishikaBot
         select_group message, user
       when '/week', 'неделя' then send_week_schedule message, user
       when '/today_tomorrow', 'сегодня/завтра' then send_tt_schedule message, user
-      when '/next', 'оставшиеся пары' then send_left_schedule message, user
+      when '/left', 'оставшиеся пары' then send_left_schedule message, user
       when '/set_timer', 'задать таймер' then configure_timer message, user
       when '/cancel', 'отмена' then cancel_action message, user
       when %r(^/debug\s+\w+$) then debug_command message, user
@@ -107,7 +110,7 @@ class RaspishikaBot
     end
   end
 
-  def start_message message, user
+  def start_message(message, user)
     @bot.api.send_message(
       chat_id: message.chat.id,
       text:
@@ -117,7 +120,7 @@ class RaspishikaBot
     )
   end
 
-  def help_message message, user
+  def help_message(message, user)
     @bot.api.send_message(
       chat_id: message.chat.id,
       text: "Помощи не будет(",
@@ -125,7 +128,7 @@ class RaspishikaBot
     )
   end
 
-  def configure_group message, user
+  def configure_group(message, user)
     departments = Cache.fetch(:departments) { @parser.fetch_departments }
     if departments.any?
       user.departments = departments.keys
@@ -150,7 +153,7 @@ class RaspishikaBot
     end
   end
 
-  def select_department message, user
+  def select_department(message, user)
     departments = Cache.fetch(:departments, expires_in: 300) { @parser.fetch_departments }
     # Additional check
     if departments.key? message.text
@@ -192,7 +195,7 @@ class RaspishikaBot
     end
   end
 
-  def select_group message, user
+  def select_group(message, user)
     sent_message = @bot.api.send_message(
       chat_id: message.chat.id,
       text: "Сверяю данные...",
@@ -246,9 +249,14 @@ class RaspishikaBot
     user.state = :default
   end
 
-  def send_week_schedule message, user
+  def send_week_schedule(message, user)
+    unless user.department && user.group
+      bot.api.send_message(chat_id: message.chat.id, text: "Группа не выбрана")
+      return configure_group(message, user)
+    end
+
     _ = Cache.fetch(:schedule, expires_in: 300) do
-      @parser.fetch_schedule user.group_info.merge({group: message.text})
+      @parser.fetch_schedule user.group_info.merge({group: user.group_name})
     end
     @bot.api.send_photo(
       chat_id: message.chat.id,
@@ -257,9 +265,14 @@ class RaspishikaBot
     )
   end
 
-  def send_tt_schedule message, user
+  def send_tt_schedule(message, user)
+    unless user.department && user.group
+      bot.api.send_message(chat_id: message.chat.id, text: "Группа не выбрана")
+      return configure_group(message, user)
+    end
+
     schedule = Cache.fetch(:schedule, expires_in: 300) do
-      @parser.fetch_schedule user.group_info.merge({group: message.text})
+      @parser.fetch_schedule user.group_info.merge({group: user.group_name})
     end
     text = format_schedule_days Schedule.new(schedule).week[0,2]
     @bot.api.send_message(
@@ -269,7 +282,12 @@ class RaspishikaBot
     )
   end
 
-  def send_left_schedule message, user
+  def send_left_schedule(message, user)
+    unless user.department && user.group
+      bot.api.send_message(chat_id: message.chat.id, text: "Группа не выбрана")
+      return configure_group(message, user)
+    end
+
     # TODO: Next pairs
     @bot.api.send_message(
       chat_id: message.chat.id,
@@ -278,7 +296,7 @@ class RaspishikaBot
     )
   end
 
-  def configure_timer message, user
+  def configure_timer(message, user)
     @bot.api.send_message(
       chat_id: message.chat.id,
       text: "Таймер не реализован",
@@ -288,7 +306,7 @@ class RaspishikaBot
     # User have 2 variants: once per day, before each pair, off, cancel
   end
 
-  def debug_command message, user
+  def debug_command(message, user)
     return unless ENV['DEBUG_CM']
 
     debug_command_name = message.text.split(' ').last
@@ -306,7 +324,7 @@ class RaspishikaBot
     DebugCommands.send(debug_command_name, bot: self, user: user, message: message)
   end
 
-  def cancel_action message, user
+  def cancel_action (message, user)
     case user.state
     when :default
       @bot.api.send_message(chat_id: message.chat.id, text: "Нечего отменять")

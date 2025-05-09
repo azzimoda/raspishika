@@ -87,7 +87,10 @@ class ScheduleParser
 
   def fetch_schedule(group_info)
     logger&.debug "Fetching schedule for group #{group_info}"
-    return "Ошибка: неверные данные группы" unless group_info[:gr] && group_info[:sid]
+    unless group_info[:gr] && group_info[:sid]
+      logger&.error "Error: Wrong group data."
+      return nil
+    end
 
     url = "https://coworking.tyuiu.ru/shs/all_t/sh.php" \
       "?action=group&union=0&sid=#{group_info[:sid]}&gr=#{group_info[:gr]}&year=#{Time.now.year}&vr=1"
@@ -115,16 +118,15 @@ class ScheduleParser
     rescue => e
       logger&.error "Error fetching schedule: #{e.detailed_message}"
       pp e.backtrace
-      "Не удалось загрузить расписание"
+      logger.error "Faild to fetch schedule"
+      nil
     ensure
       driver&.quit
     end
   end
 
-  private
-
   def parse_schedule_table(table)
-    return [] unless table
+    return nil unless table
 
     header_row = table.css('tr').first
     day_headers = header_row.css('td:nth-child(n+3)').map do |header|
@@ -150,7 +152,8 @@ class ScheduleParser
       row.css('td:nth-child(n+3)').each_with_index do |day_cell, day_index|
         day_info = day_headers[day_index] || {}
         day_info[:replaced] = day_cell.css('table.zamena').any? # day_cell.has_class? 'zamena'
-        logger.debug "Day #{day_info[:date]} id replaced" if day_info[:replaced]
+        pp day_info
+        # logger.debug "Day #{day_info[:date]} id replaced" if day_info[:replaced]
 
         time_slot[:days] << parse_day_entry(day_cell, day_info)
       end
@@ -159,32 +162,25 @@ class ScheduleParser
     schedule
   end
 
+  private
+
   def parse_day_entry day_cell, day_info
     if day_cell['class']&.include? 'event'
       # Event
-      {date: day_info[:date],
-       weekday: day_info[:weekday],
-       week_type: day_info[:week_type],
-       type: 'event',
-       subject: {discipline: day_cell.text.strip}}
+      {type: 'event',
+       subject: {discipline: day_cell.text.strip}}.merge day_info
     elsif day_cell['class']&.include? 'head_urok_praktik'
       # Practice
-      {date: day_info[:date],
-       weekday: day_info[:weekday],
-       week_type: day_info[:week_type],
-       type: 'subject',
-       subject: {discipline: day_cell.text.strip}}
+      {type: 'subject',
+       subject: {discipline: day_cell.text.strip}}.merge day_info
     else
       subject = {
         discipline: day_cell.at_css('.disc')&.text&.strip,
         teacher: day_cell.at_css('.prep')&.text&.strip,
         classroom: day_cell.at_css('.cab')&.text&.strip
       }
-      {date: day_info[:date],
-       weekday: day_info[:weekday],
-       week_type: day_info[:week_type],
-       type: subject[:discipline].empty? ? 'empty' : 'subject',
-       subject: subject}
+      {type: subject[:discipline].empty? ? 'empty' : 'subject',
+       subject: subject}.merge day_info
     end
   end
 end
@@ -206,7 +202,7 @@ def transform_schedule_to_days(schedule)
       days_schedule[day_index][:pairs] << {
         pair_number: time_slot[:pair_number],
         time_range: time_slot[:time_range],
-    }.merge(day_info.slice(:type, :subject))
+    }.merge(day_info.slice(:type, :subject, :replaced))
     end
   end
 
