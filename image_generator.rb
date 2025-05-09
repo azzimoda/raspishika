@@ -24,7 +24,8 @@ module ImageGenerator
         table { border-collapse: collapse; width: 100%; }
         th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
         th { background-color: #f2f2f2; }
-        .weekend { background-color: #f9f9f9; }
+        .event { background-color: #f9f9f9; }
+        .replaced { background-color: #ffcccc; }
       </style>
     </head>
     <body>
@@ -42,9 +43,14 @@ module ImageGenerator
         <tbody>
           #{schedule.map { |row| 
             "<tr>
-              <td>#{row[:pair_number]}</td>
-              <td>#{row[:time_range]}</td>
-              #{row[:days].map { |day| "<td>#{day[:subject].values.join"<br>"}</td>" }.join}
+              <td><b>#{row[:pair_number]}</b></td>
+              <td><b>#{row[:time_range]}</b></td>
+              #{row[:days].map { |day|
+                "<td" \
+                " class=\"#{day[:replaced] ? ' replaced' : ''}#{day[:type] == :event ? ' replaced' : ''}\">" \
+                "#{day[:subject].values.join'<br>'}" \
+                "</td>"
+              }.join"\n"}
             </tr>"
           }.join"\n"}
         </tbody>
