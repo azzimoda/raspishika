@@ -60,7 +60,7 @@ class Schedule
     day_schedule = day
     times = day_schedule.data[0][:pairs].map do |pair|
       m = pair[:time_range].match %r(^(\d{1,2}:\d{2}).+?(\d{1,2}:\d{2})$)
-      [Time.parse(m[1]), Time.parse(m[2])]
+      [Time.parse(m[1]) - 10*60, Time.parse(m[2])]
     end
     time = Time.now
     if (index = times.find_index { |t| t[0] <= time && time <= t[1] })
@@ -69,10 +69,11 @@ class Schedule
   end
 
   def left
-    if (current_pair = now)
-      current_day = day
-      current_day.data[0][:pairs].slice!((current_pair.data[0][:pairs][0][:pair_number].to_i - 1)..)
-      current_day
+    if (current_pair = pp now)
+      current_day = pp day
+      slice = pp ((current_pair.data[0][:pairs][0][:pair_number].to_i - 1)..)
+      current_day.data[0][:pairs] = pp current_day.data[0][:pairs].slice slice
+      pp current_day
     elsif Time.now <= Time.parse('8:00')
       day
     end # else nil
