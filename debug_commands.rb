@@ -1,4 +1,5 @@
 require './user'
+require './cache'
 
 module DebugCommands
   def self.user_info(bot:, user:, message:)
@@ -12,7 +13,7 @@ module DebugCommands
   def self.fetch_schedule(bot:, sid: 28703, gr: 427)
     bot.logger.debug "Fetching schedule for sid=#{sid}, gr=#{gr}"
     schedule = Schedule.from_raw parser.fetch_schedule({sid: sid, gr: gr})
-    schedule.format
+    puts schedule.format
   end
 
   def self.set_user_info(user:, **)
@@ -22,5 +23,9 @@ module DebugCommands
 
   def self.delete_user(user:, **)
     User.delete user
+  end
+
+  def self.clear_cache(**)
+    Cache.clear
   end
 end
