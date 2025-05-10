@@ -2,14 +2,19 @@ require 'json'
 
 class Schedule
   class << self
-    def from_raw hash
-      new transform hash
+    def from_raw data
+      raise ArgumentError, "schedule is nil" if data.nil?
+      unless data.is_a? Array
+        raise ArgumentError, "Schedule must be an array, but got an #{data.class}: #{data.inspect}"
+      end
+
+      new transform data
     end
   
     private
   
     def transform schedule
-      return [] if schedule.empty?
+      return [] if schedule&.empty?
     
       # Initialize array with one entry per day (based on first time slot's days count)
       days_count = schedule.first[:days].count
@@ -69,11 +74,11 @@ class Schedule
   end
 
   def left
-    if (current_pair = pp now)
-      current_day = pp day
-      slice = pp ((current_pair.data[0][:pairs][0][:pair_number].to_i - 1)..)
-      current_day.data[0][:pairs] = pp current_day.data[0][:pairs].slice slice
-      pp current_day
+    if (current_pair = now)
+      current_day = day
+      slice = ((current_pair.data[0][:pairs][0][:pair_number].to_i - 1)..)
+      current_day.data[0][:pairs] = current_day.data[0][:pairs].slice slice
+      current_day
     elsif Time.now <= Time.parse('8:00')
       day
     end # else nil
