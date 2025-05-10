@@ -24,7 +24,11 @@ class RaspishikaBot
     ["Сегодня/Завтра", "Неделя"],
     ["Выбрать другую группу", "Задать таймер"],
   ]
-  DEFAULT_KEYBOARD.push ["/debug user_info", "/debug set_user_info", "/debug delete_user"] if ENV["DEBUG_CM"]
+  if ENV["DEBUG_CM"]
+    DEFAULT_KEYBOARD.push(
+      ["/debug user_info", "/debug set_user_info", "/debug delete_user", "/debug clear_cache"]
+    )
+  end
   DEFAULT_KEYBOARD.freeze
   DEFAULT_REPLY_MARKUP = {
     keyboard: DEFAULT_KEYBOARD,
@@ -106,7 +110,7 @@ class RaspishikaBot
         text: "Произошла ошибка. Попробуйте позже.",
         reply_markup: DEFAULT_REPLY_MARKUP
       )
-      # TODO: report_error_ro_developer(e)
+      # TODO: report_error_to_developer(e)
     end
   end
 
@@ -157,7 +161,9 @@ class RaspishikaBot
     departments = Cache.fetch(:departments, expires_in: 300) { @parser.fetch_departments }
     # Additional check
     if departments.key? message.text
-      groups = Cache.fetch(:groups, expires_in: 300) { @parser.fetch_groups departments[message.text] }
+      groups = Cache.fetch(:"groups_#{message.text.downcase}", expires_in: 300) do
+        @parser.fetch_groups departments[message.text]
+      end
       if groups.any?
         user.department_url = departments[message.text]
         user.departments = []
@@ -211,24 +217,12 @@ class RaspishikaBot
       schedule = Cache.fetch(:"schedule_#{user.department}_#{user.group}", expires_in: 300) do
         @parser.fetch_schedule group_info.merge({group: message.text})
       end
-      schedule = Schedule.from_raw(schedule).format unless schedule.is_a? String
-      unless schedule.strip.empty?
-        text = schedule
-      else
-        logger.warn "Schedule not found!"
-        text = "Расписание не найдено"
+      text = if schedule then "Теперь ты в группе #{message.text}"
+      else "Не удалось получить данные для этой группы. Попробуйте позже."
       end
-
-      # TODO: Understand why it says the message can't be edited.
-      # @bot.api.edit_message_text(
-      #   chat_id: sent_message.chat.id,
-      #   message_id: sent_message.message_id,
-      #   text: text,
-      #   reply_markup: DEFAULT_REPLY_MARKUP
-      # )
       @bot.api.send_message(
         chat_id: message.chat.id,
-        text: "Теперь ты в группе #{message.text}",
+        text: text,
         reply_markup: DEFAULT_REPLY_MARKUP
       )
     else
@@ -251,7 +245,7 @@ class RaspishikaBot
       return configure_group(message, user)
     end
 
-    _ = Cache.fetch(:schedule, expires_in: 300) do
+    _ = Cache.fetch(:"schedule_#{user.department}_#{user.group}", expires_in: 300) do
       @parser.fetch_schedule user.group_info.merge({group: user.group_name})
     end
     @bot.api.send_photo(
@@ -267,7 +261,7 @@ class RaspishikaBot
       return configure_group(message, user)
     end
 
-    schedule = Cache.fetch(:schedule, expires_in: 300) do
+    schedule = Cache.fetch(:"schedule_#{user.department}_#{user.group}", expires_in: 300) do
       @parser.fetch_schedule user.group_info.merge({group: user.group_name})
     end
     text = Schedule.from_raw(schedule).days(0, 2).format
@@ -284,7 +278,7 @@ class RaspishikaBot
       return configure_group(message, user)
     end
     
-    schedule = Cache.fetch(:schedule, expires_in: 300) do
+    schedule = Cache.fetch(:"schedule_#{user.department}_#{user.group}", expires_in: 300) do
       # TODO: Add group_name to user.group_info EVERYWHERE.
       @parser.fetch_schedule user.group_info.merge({group: user.group_name})
     end

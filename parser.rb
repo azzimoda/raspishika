@@ -100,33 +100,57 @@ class ScheduleParser
     options.add_argument('--headless')
     options.add_argument('--disable-gpu')
     options.add_argument('--no-sandbox')
+    options.add_argument('--disable-blink-features=AutomationControlled')
+    options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36')
 
     driver = Selenium::WebDriver.for(:chrome, options: options)
+    driver.manage.timeouts.page_load = 30
+
+    driver.execute_cdp('Network.setExtraHTTPHeaders', headers: {
+      'Referer' => 'https://mnokol.tyuiu.ru/',
+      'Sec-Fetch-Dest' => 'document',
+      'Sec-Fetch-Mode' => 'navigate',
+      'Accept-Language' => 'ru-RU,ru;q=0.9'
+    })
+    driver.get 'https://mnokol.tyuiu.ru/'
+    sleep rand(2..5) # Рандомная задержка
+
     begin
       driver.navigate.to(url)
-      wait = Selenium::WebDriver::Wait.new(timeout: 60)
+
+      driver.action.move_by(0, rand(100..300)).perform
+      sleep 0.5
 
       logger&.info "Waiting for table..."
-      _ = wait.until { driver.find_element(id: 'main_table') }
+      sleep 5
       html = driver.page_source
-      File.write('.debug/schedule.html', html)
+      wait = Selenium::WebDriver::Wait.new(timeout: 30)
+      _ = wait.until { driver.find_element(id: 'main_table').displayed? }
+      html = driver.page_source
 
       doc = Nokogiri::HTML html
       schedule = parse_schedule_table(doc.at_css('table#main_table')) || "Расписание не найдено"
       ImageGenerator.generate(driver, schedule, **group_info)
       schedule
+    rescue Selenium::WebDriver::Error::TimeoutError => e
+      logger&.error "Web driver timeout error: #{e.detailed_message}"
+      nil
     rescue => e
       logger&.error "Error fetching schedule: #{e.detailed_message}"
       pp e.backtrace
-      logger.error "Faild to fetch schedule"
       nil
     ensure
+      File.write('.debug/schedule.html', html)
+      logger&.debug "Original HTML saved into .debug/schedule.html"
       driver&.quit
     end
   end
 
   def parse_schedule_table(table)
-    return nil unless table
+    unless table
+      logger&.warn "Table is nil: #{table.inspect}"
+      return nil
+    end
 
     logger&.info "Parsing html table..."
 
