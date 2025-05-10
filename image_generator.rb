@@ -1,7 +1,10 @@
 module ImageGenerator
   CACHE_DIR = File.expand_path('.cache', __dir__).freeze
+  FileUtils.mkdir_p CACHE_DIR
 
   def self.generate(driver, schedule, sid:, gr:, group:)
+    $logger.info "Generating image for #{sid} #{gr} #{group}"
+    
     html = generate_html(schedule, group)
     file_path = File.expand_path("table_template.html", CACHE_DIR)
     File.write(file_path, html)
@@ -9,7 +12,10 @@ module ImageGenerator
     driver.navigate.to "file://#{File.absolute_path(file_path)}"
     sleep 1
     driver.manage.window.resize_to(1920, 1080)
-    driver.save_screenshot(File.expand_path("#{sid}_#{gr}.png", CACHE_DIR))
+    file_path = File.expand_path("#{sid}_#{gr}.png", CACHE_DIR)
+    driver.save_screenshot(file_path)
+
+    $logger.info "Screenshot saved to #{file_path}"
   end
 
   private
@@ -55,6 +61,7 @@ module ImageGenerator
           }.join"\n"}
         </tbody>
       </table>
+      <p>Сгенерировано в #{Time.now.iso8601}</p>
     </body>
     </html>
     HTML
