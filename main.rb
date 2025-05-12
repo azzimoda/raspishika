@@ -86,6 +86,7 @@ class RaspishikaBot
       when '/start' then start_message message, user
       when '/help' then help_message message, user
       when '/set_group', 'выбрать другую группу' then configure_group message, user
+      # TODO: Try to optimize the line length with DS.
       when ->(t) { user.state == :select_department && user.departments.map(&:downcase).include?(t) }
         select_department message, user
       when ->(t) { user.groups.map(&:downcase).include?(t) }
@@ -133,6 +134,7 @@ class RaspishikaBot
   end
 
   def configure_group(message, user)
+    # TODO: Add loading message like in `#select_group`.
     departments = Cache.fetch(:departments) { @parser.fetch_departments }
     if departments.any?
       user.departments = departments.keys
@@ -158,6 +160,7 @@ class RaspishikaBot
   end
 
   def select_department(message, user)
+    # TODO: Add loading message like in `#select_group`.
     departments = Cache.fetch(:departments, expires_in: 300) { @parser.fetch_departments }
     # Additional check
     if departments.key? message.text
@@ -220,6 +223,7 @@ class RaspishikaBot
       text = if schedule then "Теперь ты в группе #{message.text}"
       else "Не удалось получить данные для этой группы. Попробуйте позже."
       end
+      # TODO: Delete previous message.
       @bot.api.send_message(
         chat_id: message.chat.id,
         text: text,
@@ -240,6 +244,7 @@ class RaspishikaBot
   end
 
   def send_week_schedule(message, user)
+    # TODO: Add loading message like in `#select_group`.
     unless user.department && user.group
       bot.api.send_message(chat_id: message.chat.id, text: "Группа не выбрана")
       return configure_group(message, user)
@@ -256,6 +261,7 @@ class RaspishikaBot
   end
 
   def send_tt_schedule(message, user)
+    # TODO: Add loading message like in `#select_group`.
     unless user.department && user.group
       bot.api.send_message(chat_id: message.chat.id, text: "Группа не выбрана")
       return configure_group(message, user)
@@ -273,6 +279,7 @@ class RaspishikaBot
   end
 
   def send_left_schedule(message, user)
+    # TODO: Add loading message like in `#select_group`.
     unless user.department && user.group
       bot.api.send_message(chat_id: message.chat.id, text: "Группа не выбрана")
       return configure_group(message, user)
@@ -296,8 +303,8 @@ class RaspishikaBot
       text: "Таймер не реализован",
       reply_markup: DEFAULT_REPLY_MARKUP
     )
-    # TODO: Set timer
-    # User have 2 variants: once per day, before each pair, off, cancel
+    # TODO: Implement the timer
+    # User can have 2 timers: once per day and before each pair. Both can be on/off separately.
   end
 
   def debug_command(message, user)

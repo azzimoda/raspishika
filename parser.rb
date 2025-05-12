@@ -7,17 +7,8 @@ require 'timeout'
 
 require './image_generator'
 
-WEEKDAY_SHORTS = {
-  'понедельник' => 'пн',
-  'вторник' => 'вт',
-  'среда' => 'ср',
-  'четверг' => 'чт',
-  'пятница' => 'пт',
-  'суббота' => 'сб',
-  'воскресенье' => 'вс' # it's useless btw
-}.freeze
-
 class ScheduleParser
+  TIMEOUT = 30
   BASE_URL = 'https://mnokol.tyuiu.ru'.freeze
 
   def initialize logger: nil
@@ -57,10 +48,10 @@ class ScheduleParser
     options.add_argument('--disable-gpu')
     options.add_argument('--no-sandbox')
 
-    driver = Selenium::WebDriver.for(:chrome, options: options)
+    driver = Selenium::WebDriver.for(:chrome, options:)
     begin
       driver.navigate.to(department_url)
-      wait = Selenium::WebDriver::Wait.new(timeout: 20)
+      wait = Selenium::WebDriver::Wait.new(timeout: TIMEOUT)
 
       iframe = wait.until { driver.find_element(:css, 'div.com-content-article__body iframe') }
       driver.switch_to.frame(iframe)
@@ -85,6 +76,7 @@ class ScheduleParser
     end
   end
 
+  # TODO: Try to use the previous faster algorithm; maybe there is no difference in effectivity.
   def fetch_schedule(group_info)
     logger&.debug "Fetching schedule for group #{group_info}"
     unless group_info[:gr] && group_info[:sid]
@@ -103,8 +95,8 @@ class ScheduleParser
     options.add_argument('--disable-blink-features=AutomationControlled')
     options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36')
 
-    driver = Selenium::WebDriver.for(:chrome, options: options)
-    driver.manage.timeouts.page_load = 30
+    driver = Selenium::WebDriver.for(:chrome, options:)
+    driver.manage.timeouts.page_load = TIMEOUT
 
     driver.execute_cdp('Network.setExtraHTTPHeaders', headers: {
       'Referer' => 'https://mnokol.tyuiu.ru/',
@@ -124,7 +116,7 @@ class ScheduleParser
       logger&.info "Waiting for table..."
       sleep 5
       html = driver.page_source
-      wait = Selenium::WebDriver::Wait.new(timeout: 30)
+      wait = Selenium::WebDriver::Wait.new(timeout: TIMEOUT)
       _ = wait.until { driver.find_element(id: 'main_table').displayed? }
       html = driver.page_source
 
@@ -174,11 +166,10 @@ class ScheduleParser
       pair_number = time_cell.text.strip
       time_range = row.at_css('td:nth-child(2)').text.strip
 
-      time_slot = {pair_number: pair_number, time_range: time_range, days: []}
+      time_slot = {pair_number:, time_range:, days: []}
       row.css('td:nth-child(n+3)').each_with_index do |day_cell, day_index|
         day_info = day_headers[day_index] || {}
-        day_info[:replaced] = day_cell.css('table.zamena').any? # day_cell.has_class? 'zamena'
-        # logger.debug "Day #{day_info[:date]} id replaced" if day_info[:replaced]
+        day_info[:replaced] = day_cell.css('table.zamena').any?
 
         time_slot[:days] << parse_day_entry(day_cell, day_info)
       end

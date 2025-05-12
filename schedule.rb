@@ -1,6 +1,16 @@
 require 'json'
 
 class Schedule
+  WEEKDAY_SHORTS = {
+    'понедельник' => 'пн',
+    'вторник' => 'вт',
+    'среда' => 'ср',
+    'четверг' => 'чт',
+    'пятница' => 'пт',
+    'суббота' => 'сб',
+    'воскресенье' => 'вс' # it's useless btw
+  }.freeze
+
   class << self
     def from_raw data
       raise ArgumentError, "schedule is nil" if data.nil?
@@ -15,22 +25,21 @@ class Schedule
   
     def transform schedule
       return [] if schedule&.empty?
-    
-      # Initialize array with one entry per day (based on first time slot's days count)
+
       days_count = schedule.first[:days].count
       days_schedule = Array.new(days_count) { { pairs: [] } }
-  
+
       schedule[0][:days].each_with_index do |day_info, day_index|
         days_schedule[day_index].merge! day_info.slice(:date, :weekday, :week_type)
       end
-  
+
       schedule.each do |time_slot|
         time_slot[:days].each_with_index do |day_info, day_index|
           # Create a time slot entry for this day
           days_schedule[day_index][:pairs] << {
             pair_number: time_slot[:pair_number],
             time_range: time_slot[:time_range],
-        }.merge(day_info.slice(:type, :subject, :replaced, :weekday))
+        }.merge(day_info.slice(:type, :subject, :replaced, :date, :weekday))
         end
       end
   
@@ -39,49 +48,71 @@ class Schedule
   end
 
   # TODO: Maybe I should implement structure to make it more strict.
-  def initialize hash
-    @hash = hash
+  def initialize data
+    @data = data
+  end
+
+  def == other
+    @data == other.data
   end
 
   def data
-    @hash
+    @data
+  end
+
+  def deep_clone
+    Schedule.new Marshal.load Marshal.dump @data
   end
 
   def days(*args)
-    Schedule.new Marshal.load Marshal.dump @hash.slice(*args)
+    Schedule.new Marshal.load Marshal.dump @data.slice(*args)
   end
 
   def day n=0
-    Schedule.new [Marshal.load(Marshal.dump(@hash[n]))]
+    Schedule.new [Marshal.load(Marshal.dump(@data[n]))]
   end
 
   def pair n, d=0
     day_schedule = day.data[d]
-    day_schedule[:pairs] = [day_schedule[:pairs][n].merge(day_schedule.slice(:date, :weekday, :week_type, :replaced))]
+    day_schedule[:pairs] = [day_schedule[:pairs][n]]
     Schedule.new [day_schedule]
   end
 
-  def now
-    day_schedule = day
-    times = day_schedule.data[0][:pairs].map do |pair|
+  def now(time: Time.now)
+    times = day.data[0][:pairs].map do |pair|
       m = pair[:time_range].match %r(^(\d{1,2}:\d{2}).+?(\d{1,2}:\d{2})$)
       [Time.parse(m[1]) - 10*60, Time.parse(m[2])]
     end
-    time = Time.now
+
     if (index = times.find_index { |t| t[0] <= time && time <= t[1] })
       pair index
     end
   end
 
-  def left
-    if (current_pair = now)
+  # Returns schedule of today with pairs left after current time. If there is no paris left, returns `nil`.
+  # @param from [Time]
+  # @return [Schedule, NilClass]
+  def left(from: Time.now)
+    if (current_pair = now(time: from))
+      # On a pair
+      puts "On a pair"
+      pp current_pair
       current_day = day
       slice = ((current_pair.data[0][:pairs][0][:pair_number].to_i - 1)..)
-      current_day.data[0][:pairs] = current_day.data[0][:pairs].slice slice
-      current_day
-    elsif Time.now <= Time.parse('8:00')
+      current_day.tap { |d| d.data[0][:pairs] = current_day.data[0][:pairs].slice slice }
+    elsif from <= Time.parse('8:00')
+      # Before the first pair
+      puts 'Before the first pair'
       day
-    end # else nil
+    elsif from.between?(Time.parse('13:05'), Time.parse('13:45')) # Time.parse('13:05') <= from && from <= Time.parse('13:45')
+      # On the big break
+      puts 'On the big break'
+      day
+    else
+      # Nothing
+      puts 'Nothing'
+      nil
+    end
   end
 
   def next_pair
@@ -89,7 +120,7 @@ class Schedule
   end
 
   def to_json
-    @hash.to_json
+    @data.to_json
   end
 
   def from_json s
@@ -97,7 +128,7 @@ class Schedule
   end
 
   def format
-    @hash.map do |day|
+    @data.map do |day|
       weekday = WEEKDAY_SHORTS[day[:weekday].downcase].upcase
       day_head = "#{weekday}, #{day[:date]} (#{day[:week_type]} неделя)"
       pairs = day[:pairs].map.with_index do |pair, index|
