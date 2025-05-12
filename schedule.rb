@@ -29,7 +29,7 @@ class Schedule
       days_count = schedule.first[:days].count
       days_schedule = Array.new(days_count) { { pairs: [] } }
 
-      schedule[0][:days].each_with_index do |day_info, day_index|
+      schedule.first[:days].each_with_index do |day_info, day_index|
         days_schedule[day_index].merge! day_info.slice(:date, :weekday, :week_type)
       end
 
@@ -39,12 +39,12 @@ class Schedule
           days_schedule[day_index][:pairs] << {
             pair_number: time_slot[:pair_number],
             time_range: time_slot[:time_range],
-        }.merge(day_info.slice(:type, :subject, :replaced, :date, :weekday))
+        }.merge(day_info.slice(:type, :replaced, :subject, :event, :practice))
         end
       end
   
       days_schedule
-    end  
+    end
   end
 
   # TODO: Maybe I should implement structure to make it more strict.

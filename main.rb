@@ -42,6 +42,7 @@ class RaspishikaBot
     @parser = ScheduleParser.new(logger: @logger)
     @token = ENV['TELEGRAM_BOT_TOKEN']
 
+    Cache.logger = @logger
     User.logger = @logger
     User.restore
   end
@@ -161,10 +162,10 @@ class RaspishikaBot
 
   def select_department(message, user)
     # TODO: Add loading message like in `#select_group`.
-    departments = Cache.fetch(:departments, expires_in: 300) { @parser.fetch_departments }
+    departments = Cache.fetch(:departments) { @parser.fetch_departments }
     # Additional check
     if departments.key? message.text
-      groups = Cache.fetch(:"groups_#{message.text.downcase}", expires_in: 300) do
+      groups = Cache.fetch(:"groups_#{message.text.downcase}") do
         @parser.fetch_groups departments[message.text]
       end
       if groups.any?
@@ -211,13 +212,13 @@ class RaspishikaBot
       reply_markup: { remove_keyboard: true }.to_json
     )
 
-    groups = Cache.fetch(:groups, expires_in: 300) { @parser.fetch_groups user.department_url }
+    groups = Cache.fetch(:groups) { @parser.fetch_groups user.department_url }
     if (group_info = groups[message.text])
       user.department = group_info[:sid]
       user.group = group_info[:gr]
       user.group_name = message.text
 
-      schedule = Cache.fetch(:"schedule_#{user.department}_#{user.group}", expires_in: 300) do
+      schedule = Cache.fetch(:"schedule_#{user.department}_#{user.group}") do
         @parser.fetch_schedule group_info.merge({group: message.text})
       end
       text = if schedule then "Теперь ты в группе #{message.text}"
@@ -250,7 +251,7 @@ class RaspishikaBot
       return configure_group(message, user)
     end
 
-    _ = Cache.fetch(:"schedule_#{user.department}_#{user.group}", expires_in: 300) do
+    _ = Cache.fetch(:"schedule_#{user.department}_#{user.group}") do
       @parser.fetch_schedule user.group_info.merge({group: user.group_name})
     end
     @bot.api.send_photo(
@@ -267,7 +268,7 @@ class RaspishikaBot
       return configure_group(message, user)
     end
 
-    schedule = Cache.fetch(:"schedule_#{user.department}_#{user.group}", expires_in: 300) do
+    schedule = Cache.fetch(:"schedule_#{user.department}_#{user.group}") do
       @parser.fetch_schedule user.group_info.merge({group: user.group_name})
     end
     text = Schedule.from_raw(schedule).days(0, 2).format
@@ -285,7 +286,7 @@ class RaspishikaBot
       return configure_group(message, user)
     end
     
-    schedule = Cache.fetch(:"schedule_#{user.department}_#{user.group}", expires_in: 300) do
+    schedule = Cache.fetch(:"schedule_#{user.department}_#{user.group}") do
       # TODO: Add group_name to user.group_info EVERYWHERE.
       @parser.fetch_schedule user.group_info.merge({group: user.group_name})
     end

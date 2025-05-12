@@ -1,4 +1,6 @@
 module ImageGenerator
+  IMAGE_WIDTH = 1600 # 1440 # 1920
+  IMAGE_HEIGHT = 1080
   CACHE_DIR = File.expand_path('.cache', __dir__).freeze
   FileUtils.mkdir_p CACHE_DIR
 
@@ -11,7 +13,8 @@ module ImageGenerator
 
     driver.navigate.to "file://#{File.absolute_path(file_path)}"
     sleep 1
-    driver.manage.window.resize_to(1920, 1080)
+
+    driver.manage.window.resize_to(IMAGE_WIDTH, IMAGE_HEIGHT)
     file_path = File.expand_path("#{sid}_#{gr}.png", CACHE_DIR)
     driver.save_screenshot(file_path)
 
@@ -27,43 +30,65 @@ module ImageGenerator
     <head>
       <style>
         body { font-family: Arial, sans-serif; margin: 20px; }
-        table { border-collapse: collapse; width: 100%; }
+        table#main_table { border-collapse: collapse; width: 100%; }
         th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
         th { background-color: #f2f2f2; }
         .event { background-color: #f9f9f9; }
         .replaced { background-color: #ffcccc; }
+        .discipline, .classroom { font-weight: bold; }
       </style>
     </head>
     <body>
       <h2>Расписание группы #{group}</h2>
-      <table>
+      <table id='main_table'>
         <thead>
           <tr>
             <th>№</th>
             <th>Время</th>
-            #{schedule[0][:days].map { |d|
+            #{schedule.first[:days].map { |d|
               "<th>#{d[:date]}<br>#{d[:weekday]}<br>#{d[:week_type]}</th>"
             }.join"\n"}
           </tr>
         </thead>
         <tbody>
-          #{schedule.map { |row| 
-            "<tr>
-              <td><b>#{row[:pair_number]}</b></td>
-              <td><b>#{row[:time_range]}</b></td>
-              #{row[:days].map { |day|
-                "<td" \
-                " class=\"#{day[:replaced] ? ' replaced' : ''}#{day[:type] == :event ? ' replaced' : ''}\">" \
-                "#{day[:subject].values.join'<br>'}" \
-                "</td>"
-              }.join"\n"}
-            </tr>"
-          }.join"\n"}
+          #{generate_table_body schedule}
         </tbody>
       </table>
       <p>Сгенерировано в #{Time.now.iso8601}</p>
     </body>
     </html>
     HTML
+  end
+
+  def self.generate_table_body schedule
+    schedule.map do |row| 
+      <<~HTML
+      <tr>
+        <td><b>#{row[:pair_number]}</b></td>
+        <td><b>#{row[:time_range]}</b></td>
+        #{generate_row row}
+      </tr>
+      HTML
+    end.join"\n"
+  end
+
+  def self.generate_row row
+    row[:days].map do |day|
+      css_class = "#{day[:replaced] ? ' replaced' : ''} #{day[:type].to_s}"
+      case day[:type]
+      when :subject
+        <<~HTML
+        <td class='#{css_class}'>
+          <span class='discipline'>#{day[:subject][:discipline]}</span><br>
+          <span class='teacher'>#{day[:subject][:teacher]}</span><br>
+          <span class='classroom'>#{day[:subject][:classroom]}</span><br>
+        </td>
+        HTML
+      when :event
+        "<td class='#{css_class}'> <span>#{day[:event]}</span><br> </td>"
+      when :empty
+        "<td class='#{css_class}'> <span>#{day[:replaced] ? 'Снято' : ''}</span><br> </td>"
+      end
+    end.join"\n"
   end
 end

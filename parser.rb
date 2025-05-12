@@ -181,22 +181,21 @@ class ScheduleParser
   private
 
   def parse_day_entry day_cell, day_info
-    if day_cell['class']&.include? 'event'
+    case
+    when day_cell['class']&.include?('event')
       # Event
-      {type: 'event',
-       subject: {discipline: day_cell.text.strip}}.merge day_info
-    elsif day_cell['class']&.include? 'head_urok_praktik'
+      {type: :event, event: day_cell.text.strip}.merge day_info
+    when day_cell['class']&.include?('head_urok_praktik')
       # Practice
-      {type: 'subject',
-       subject: {discipline: day_cell.text.strip}}.merge day_info
+      {type: :practice, practice: day_cell.text.strip}.merge day_info
+    when day_cell.text.downcase.include?('снято') || day_cell.at_css('.disc')&.text&.strip.empty?
+      {type: :empty}.merge day_info
     else
-      subject = {
+      {type: :subject, subject: {
         discipline: day_cell.at_css('.disc')&.text&.strip,
         teacher: day_cell.at_css('.prep')&.text&.strip,
         classroom: day_cell.at_css('.cab')&.text&.strip
-      }
-      {type: subject[:discipline].empty? ? 'empty' : 'subject',
-       subject: subject}.merge day_info
+      }}.merge day_info
     end
   end
 end
