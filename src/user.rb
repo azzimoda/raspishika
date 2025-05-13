@@ -60,7 +60,7 @@ class User
   def to_h
     {department:, group:, group_name:, timer:}
   end
-  
+
   def to_json(*)
     to_h.to_json
   end

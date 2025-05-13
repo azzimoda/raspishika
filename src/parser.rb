@@ -5,7 +5,7 @@ require 'cgi'
 require 'selenium-webdriver'
 require 'timeout'
 
-require './image_generator'
+require_relative './image_generator'
 
 class ScheduleParser
   TIMEOUT = 30

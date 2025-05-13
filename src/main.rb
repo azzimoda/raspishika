@@ -7,11 +7,11 @@ require 'cgi'
 require 'selenium-webdriver'
 require 'timeout'
 
-require './cache'
-require './debug_commands'
-require './parser'
-require './schedule'
-require './user'
+require './src/cache'
+require './src/debug_commands'
+require './src/parser'
+require './src/schedule'
+require './src/user'
 
 if ENV['TELEGRAM_BOT_TOKEN'].nil?
   puts "Environment variable TELEGRAM_BOT_TOKEN is nil"
@@ -35,12 +35,13 @@ class RaspishikaBot
     resize_keyboard: true,
     one_time_keyboard: true,
   }.to_json.freeze
-  
+
   def initialize
     @logger = Logger.new($stderr, level: Logger::DEBUG)
     $logger = @logger
     @parser = ScheduleParser.new(logger: @logger)
     @token = ENV['TELEGRAM_BOT_TOKEN']
+    @token = "7627667368:AAGgEP1W7Y9pKqj2hMX0o1l5VABN2KUK2rk"
 
     Cache.logger = @logger
     User.logger = @logger
@@ -231,7 +232,7 @@ class RaspishikaBot
       else "Не удалось получить данные для этой группы. Попробуйте позже."
       end
 
-      bot.api.delete_message(chat_id: message.chat.id, message_id: sent_message.message_id)
+      @bot.api.delete_message(chat_id: message.chat.id, message_id: sent_message.message_id)
       @bot.api.send_message(
         chat_id: message.chat.id,
         text: text,
@@ -290,7 +291,7 @@ class RaspishikaBot
       bot.api.send_message(chat_id: message.chat.id, text: "Группа не выбрана")
       return configure_group(message, user)
     end
-    
+
     schedule = Cache.fetch(:"schedule_#{user.department}_#{user.group}") do
       # TODO: Add group_name to user.group_info EVERYWHERE.
       @parser.fetch_schedule user.group_info.merge({group: user.group_name})

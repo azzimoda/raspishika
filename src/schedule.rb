@@ -20,9 +20,9 @@ class Schedule
 
       new transform data
     end
-  
+
     private
-  
+
     def transform schedule
       return [] if schedule&.empty?
 
@@ -42,7 +42,7 @@ class Schedule
         }.merge(day_info.slice(:type, :replaced, :subject, :event, :practice))
         end
       end
-  
+
       days_schedule
     end
   end
