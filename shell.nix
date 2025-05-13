@@ -19,9 +19,9 @@ pkgs.mkShell {
     export TELEGRAM_BOT_TOKEN=$(cat .token)
     export CACHE=10 # Default cache expiration time
 
-    mkdir -p .data
-    mkdir -p .cache
-    mkdir -p .debug
+    mkdir -p data
+    mkdir -p data/cache
+    mkdir -p data/debug
 
     which ruby
     echo GEM_HOME=$GEM_HOME

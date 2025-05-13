@@ -1,5 +1,5 @@
 class User
-  BACKUP_FILE = '.data/users.json'
+  BACKUP_FILE = File.join('data', 'users.json')
 
   @users = {}
   @logger = nil
@@ -60,7 +60,7 @@ class User
   def to_h
     {department:, group:, group_name:, timer:}
   end
-  
+
   def to_json(*)
     to_h.to_json
   end

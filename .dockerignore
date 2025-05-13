@@ -1,0 +1,9 @@
+README.md
+LICENSE
+
+shell.nix
+
+.git/
+.gitignore
+
+tests/

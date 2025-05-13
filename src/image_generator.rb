@@ -1,12 +1,12 @@
 module ImageGenerator
   IMAGE_WIDTH = 1200 # 1440 # 1920
   IMAGE_HEIGHT = 800
-  CACHE_DIR = File.expand_path('.cache', __dir__).freeze
+  CACHE_DIR = File.expand_path('../data/cache', __dir__).freeze
   FileUtils.mkdir_p CACHE_DIR
 
   def self.generate(driver, schedule, sid:, gr:, group:, **)
     $logger.info "Generating image for #{sid} #{gr} #{group}"
-    
+
     html = generate_html(schedule, group)
     file_path = File.expand_path("table_template.html", CACHE_DIR)
     File.write(file_path, html)
@@ -61,7 +61,7 @@ module ImageGenerator
   end
 
   def self.generate_table_body schedule
-    schedule.map do |row| 
+    schedule.map do |row|
       <<~HTML
       <tr>
         <td><b>#{row[:pair_number]}</b></td>
