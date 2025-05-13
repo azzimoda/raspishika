@@ -4,7 +4,7 @@ module ImageGenerator
   CACHE_DIR = File.expand_path('.cache', __dir__).freeze
   FileUtils.mkdir_p CACHE_DIR
 
-  def self.generate(driver, schedule, sid:, gr:, group:)
+  def self.generate(driver, schedule, sid:, gr:, group:, **)
     $logger.info "Generating image for #{sid} #{gr} #{group}"
     
     html = generate_html(schedule, group)

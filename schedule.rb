@@ -132,10 +132,11 @@ class Schedule
       weekday = WEEKDAY_SHORTS[day[:weekday].downcase].upcase
       day_head = "#{weekday}, #{day[:date]} (#{day[:week_type]} неделя)"
       pairs = day[:pairs].map.with_index do |pair, index|
-        next if pair[:subject][:discipline]&.strip&.empty?
+        next if pair[:type] == :empty # [:discipline]&.strip&.empty?
 
         classroom = ""
-        name = if pair[:type] == 'subject'
+        name = case pair[:type]
+        when :subject
           classroom = " — #{pair[:subject][:classroom]}"
           teacher = if (parts = pair[:subject][:teacher].split).size == 3
             "#{parts.first} #{parts[1][0]}.#{parts[2][0]}."
@@ -143,7 +144,7 @@ class Schedule
             pair[:subject][:teacher]
           end
           "\n  #{pair[:subject][:discipline]}, #{teacher}"
-        elsif pair[:type] == 'event'
+        when :event
           " — #{pair[:subject][:discipline]}"
         end
 

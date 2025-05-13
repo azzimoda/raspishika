@@ -46,7 +46,12 @@ class RaspishikaBot
     User.logger = @logger
     User.restore
   end
-  attr_accessor :bot, :logger, :parser
+  attr_accessor :logger, :parser
+
+  def bot
+    @mutex.synchronize { @bot }
+  end
+  # TODO: Use this method instead of @user
 
   def run
     Telegram::Bot::Client.run(@token) do |bot|
@@ -233,9 +238,10 @@ class RaspishikaBot
         reply_markup: DEFAULT_REPLY_MARKUP
       )
     else
-      bot.api.delete_message(chat_id: message.chat.id, message_id: sent_message.message_id)
       user.department = nil
       user.group = nil
+
+      @bot.api.delete_message(chat_id: message.chat.id, message_id: sent_message.message_id)
       @bot.api.send_message(
         chat_id: message.chat.id,
         text: "Группа #{message.text} не найдена. Доступные группы:\n#{user.groups.keys.join(" , ")}",
