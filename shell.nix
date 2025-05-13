@@ -17,6 +17,7 @@ pkgs.mkShell {
     export PATH=$PATH:$GEM_PATH
 
     export TELEGRAM_BOT_TOKEN=$(cat .token)
+    export CACHE=10 # Default cache expiration time
 
     mkdir -p .data
     mkdir -p .cache

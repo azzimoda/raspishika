@@ -1,6 +1,6 @@
 module ImageGenerator
-  IMAGE_WIDTH = 1600 # 1440 # 1920
-  IMAGE_HEIGHT = 1080
+  IMAGE_WIDTH = 1200 # 1440 # 1920
+  IMAGE_HEIGHT = 800
   CACHE_DIR = File.expand_path('.cache', __dir__).freeze
   FileUtils.mkdir_p CACHE_DIR
 
@@ -29,7 +29,7 @@ module ImageGenerator
     <html>
     <head>
       <style>
-        body { font-family: Arial, sans-serif; margin: 20px; }
+        body { font-family: Arial, sans-serif; font-size: 10px; margin: 20px; }
         table#main_table { border-collapse: collapse; width: 100%; }
         th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
         th { background-color: #f2f2f2; }
@@ -54,7 +54,7 @@ module ImageGenerator
           #{generate_table_body schedule}
         </tbody>
       </table>
-      <p>Сгенерировано в #{Time.now.iso8601}</p>
+      <p>Сгенерировано в #{Time.now}</p>
     </body>
     </html>
     HTML
