@@ -32,6 +32,9 @@ class ScheduleParser
       @departments[department_name] = "#{BASE_URL}#{department_url}"
     end
 
+    @departments.filter! do |name, url|
+      name.downcase.then { |s| s.include?('отделение') || s == 'заочное обучение' }
+    end
     logger&.debug @departments
     @departments
   rescue => e
@@ -84,8 +87,8 @@ class ScheduleParser
       return nil
     end
 
-    url = "https://coworking.tyuiu.ru/shs/all_t/sh.php" \
-      "?action=group&union=0&sid=#{group_info[:sid]}&gr=#{group_info[:gr]}&year=#{Time.now.year}&vr=1"
+    base_url = "https://coworking.tyuiu.ru/shs/all_t/sh#{group_info[:z] ? 'z' : ''}.php"
+    url = "#{base_url}?action=group&union=0&sid=#{group_info[:sid]}&gr=#{group_info[:gr]}&year=#{Time.now.year}&vr=1"
     logger&.info "Fetching schedule from: #{url}"
 
     options = Selenium::WebDriver::Chrome::Options.new
@@ -188,7 +191,7 @@ class ScheduleParser
     when day_cell['class']&.include?('head_urok_praktik')
       # Practice
       {type: :practice, practice: day_cell.text.strip}.merge day_info
-    when day_cell.text.downcase.include?('снято') || day_cell.at_css('.disc')&.text&.strip.empty?
+    when day_cell.text.downcase.include?('снято') || day_cell.at_css('.disc')&.text&.strip&.empty?
       {type: :empty}.merge day_info
     else
       {type: :subject, subject: {

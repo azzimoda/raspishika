@@ -90,7 +90,7 @@ class RaspishikaBot
       # TODO: Try to optimize the line length with DS.
       when ->(t) { user.state == :select_department && user.departments.map(&:downcase).include?(t) }
         select_department message, user
-      when ->(t) { user.groups.map(&:downcase).include?(t) }
+      when ->(t) { user.groups.keys.map(&:downcase).include?(t) }
         select_group message, user
       when '/week', 'неделя' then send_week_schedule message, user
       when '/today_tomorrow', 'сегодня/завтра' then send_tt_schedule message, user
@@ -155,7 +155,7 @@ class RaspishikaBot
       @bot.api.send_message(
         chat_id: message.chat.id,
         text: "Не удалось загрузить отделения",
-        reply_markup: { remove_keyboard: true }.to_json
+        reply_markup: DEFAULT_REPLY_MARKUP
       )
     end
   end
@@ -170,8 +170,9 @@ class RaspishikaBot
       end
       if groups.any?
         user.department_url = departments[message.text]
+        user.z = message.text.downcase == 'заочное обучение'
         user.departments = []
-        user.groups = groups.keys
+        user.groups = groups
         user.state = :select_group
 
         keyboard = [["Отмена"]] + groups.keys.each_slice(2).to_a
@@ -194,7 +195,7 @@ class RaspishikaBot
     else
       user.department_url = nil
       user.departments = []
-      user.groups = []
+      user.groups = {}
       user.state = :default
       logger.warn "Cached departments differ from fetched"
       @bot.api.send_message(
@@ -212,8 +213,8 @@ class RaspishikaBot
       reply_markup: { remove_keyboard: true }.to_json
     )
 
-    groups = Cache.fetch(:groups) { @parser.fetch_groups user.department_url }
-    if (group_info = groups[message.text])
+    # groups = Cache.fetch(:"groups_#{group}") { @parser.fetch_groups user.department_url }
+    if (group_info = user.groups[message.text])
       user.department = group_info[:sid]
       user.group = group_info[:gr]
       user.group_name = message.text
@@ -224,23 +225,25 @@ class RaspishikaBot
       text = if schedule then "Теперь ты в группе #{message.text}"
       else "Не удалось получить данные для этой группы. Попробуйте позже."
       end
-      # TODO: Delete previous message.
+
+      bot.api.delete_message(chat_id: message.chat.id, message_id: sent_message.message_id)
       @bot.api.send_message(
         chat_id: message.chat.id,
         text: text,
         reply_markup: DEFAULT_REPLY_MARKUP
       )
     else
+      bot.api.delete_message(chat_id: message.chat.id, message_id: sent_message.message_id)
       user.department = nil
       user.group = nil
       @bot.api.send_message(
         chat_id: message.chat.id,
-        text: "Группа #{message.text} не найдена. Доступные группы:\n#{groups.keys.join(" , ")}",
+        text: "Группа #{message.text} не найдена. Доступные группы:\n#{user.groups.keys.join(" , ")}",
         reply_markup: DEFAULT_REPLY_MARKUP
       )
     end
 
-    user.groups = []
+    user.groups = {}
     user.state = :default
   end
 
@@ -272,11 +275,7 @@ class RaspishikaBot
       @parser.fetch_schedule user.group_info.merge({group: user.group_name})
     end
     text = Schedule.from_raw(schedule).days(0, 2).format
-    @bot.api.send_message(
-      chat_id: message.chat.id,
-      text: text,
-      reply_markup: DEFAULT_REPLY_MARKUP
-    )
+    @bot.api.send_message(chat_id: message.chat.id, text:, reply_markup: DEFAULT_REPLY_MARKUP)
   end
 
   def send_left_schedule(message, user)

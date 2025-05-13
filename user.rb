@@ -42,19 +42,23 @@ class User
     # like { type: :once, time: '18:00' } or { type: :before } or nil
     @timer = timer
     @departments = []
-    @groups = []
+    @groups = {}
     @department_url = nil
     @temp_group = nil
   end
   attr_accessor :id, :state, :group, :group_name, :timer, :departments,
-    :department, :department_url, :groups, :temp_group
+    :department, :department_url, :groups, :temp_group, :z
+
+  def z?
+    @z
+  end
 
   def group_info
-    {sid: @department, gr: @group}
+    {sid: @department, gr: @group, group: @group_name, z:}
   end
 
   def to_h
-    {department: @department, group: @group, group_name: @group_name, timer: @timer}
+    {department:, group:, group_name:, timer:}
   end
   
   def to_json(*)
