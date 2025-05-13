@@ -38,7 +38,7 @@ class ScheduleParser
     logger&.debug @departments
     @departments
   rescue => e
-    logger&.error "Error fetching departments: #{e.message}"
+    logger&.error "Unhandle error in `#fetch_departments`: #{e.message}"
     {}
   end
 
@@ -74,7 +74,7 @@ class ScheduleParser
 
       groups
     rescue => e
-      logger&.error "Error fetching groups: #{e.message}"
+      logger&.error "Unhandled error in `#fetch_groups`: #{e.message}"
       {}
     ensure
       driver&.quit
@@ -85,7 +85,7 @@ class ScheduleParser
   def fetch_schedule(group_info)
     logger&.debug "Fetching schedule for group #{group_info}"
     unless group_info[:gr] && group_info[:sid]
-      logger&.error "Error: Wrong group data."
+      logger&.error "Wrong group data"
       return nil
     end
 
@@ -135,7 +135,7 @@ class ScheduleParser
       logger&.error "Web driver timeout error: #{e.detailed_message}"
       nil
     rescue => e
-      logger&.error "Error fetching schedule: #{e.detailed_message}"
+      logger&.error "Unhandled error in `#fetch_schedule`: #{e.detailed_message}"
       pp e.backtrace
       nil
     ensure

@@ -95,24 +95,14 @@ class Schedule
   def left(from: Time.now)
     if (current_pair = now(time: from))
       # On a pair
-      puts "On a pair"
-      pp current_pair
       current_day = day
       slice = ((current_pair.data[0][:pairs][0][:pair_number].to_i - 1)..)
       current_day.tap { |d| d.data[0][:pairs] = current_day.data[0][:pairs].slice slice }
     elsif from <= Time.parse('8:00')
-      # Before the first pair
-      puts 'Before the first pair'
-      day
-    elsif from.between?(Time.parse('13:05'), Time.parse('13:45')) # Time.parse('13:05') <= from && from <= Time.parse('13:45')
-      # On the big break
-      puts 'On the big break'
-      day
-    else
-      # Nothing
-      puts 'Nothing'
-      nil
-    end
+      day # Before the first pair
+    elsif from.between?(Time.parse('13:05'), Time.parse('13:45'))
+      day # On the big break
+    end # else nil
   end
 
   def next_pair
