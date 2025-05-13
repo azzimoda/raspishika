@@ -120,28 +120,27 @@ class Schedule
   def format
     @data.map do |day|
       weekday = WEEKDAY_SHORTS[day[:weekday].downcase].upcase
-      day_head = "#{weekday}, #{day[:date]} (#{day[:week_type]} неделя)"
       pairs = day[:pairs].map.with_index do |pair, index|
         next if pair[:type] == :empty # [:discipline]&.strip&.empty?
 
         classroom = ""
         name = case pair[:type]
         when :subject
-          classroom = " — #{pair[:subject][:classroom]}"
+          classroom = " | #{pair[:subject][:classroom]}"
           teacher = if (parts = pair[:subject][:teacher].split).size == 3
             "#{parts.first} #{parts[1][0]}.#{parts[2][0]}."
           else
             pair[:subject][:teacher]
           end
-          "\n  #{pair[:subject][:discipline]}, #{teacher}"
+          "\n*#{pair[:subject][:discipline]}*\n#{teacher}"
         when :event
           " — #{pair[:subject][:discipline]}"
         end
 
-        "  #{pair[:pair_number]} — #{pair[:time_range]}#{classroom}#{name}"
-      end.compact
+        "#{pair[:pair_number]} | #{pair[:time_range]}#{classroom}#{name}"
+      end.compact.join "\n\n"
 
-      "#{day_head}:\n" + pairs.join("\n")
+      "📅 #{weekday}, #{day[:date]}:\n\n#{pairs}"
     end.join("\n\n")
   end
 end

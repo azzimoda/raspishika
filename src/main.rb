@@ -14,7 +14,7 @@ require './src/schedule'
 require './src/user'
 
 if ENV['TELEGRAM_BOT_TOKEN'].nil?
-  puts "Environment variable TELEGRAM_BOT_TOKEN is nil"
+  puts "FATAL: Environment variable TELEGRAM_BOT_TOKEN is nil"
   quit
 end
 
@@ -274,7 +274,12 @@ class RaspishikaBot
       @parser.fetch_schedule user.group_info
     end
     text = Schedule.from_raw(schedule).days(0, 2).format
-    @bot.api.send_message(chat_id: message.chat.id, text:, reply_markup: DEFAULT_REPLY_MARKUP)
+    @bot.api.send_message(
+      chat_id: message.chat.id,
+      text:,
+      parse_mode: 'Markdown',
+      reply_markup: DEFAULT_REPLY_MARKUP
+    )
   end
 
   def send_left_schedule(message, user)
