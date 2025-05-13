@@ -4,8 +4,14 @@ module ImageGenerator
   CACHE_DIR = File.expand_path('../data/cache', __dir__).freeze
   FileUtils.mkdir_p CACHE_DIR
 
+  @logger = nil
+
+  class << self
+    attr_accessor :logger
+  end
+
   def self.generate(driver, schedule, sid:, gr:, group:, **)
-    $logger.info "Generating image for #{sid} #{gr} #{group}"
+    logger&.info "Generating image for #{sid} #{gr} #{group}"
 
     html = generate_html(schedule, group)
     file_path = File.expand_path("table_template.html", CACHE_DIR)
@@ -18,7 +24,7 @@ module ImageGenerator
     file_path = File.expand_path("#{sid}_#{gr}.png", CACHE_DIR)
     driver.save_screenshot(file_path)
 
-    $logger.info "Screenshot saved to #{file_path}"
+    logger&.info "Screenshot saved to #{file_path}"
   end
 
   private

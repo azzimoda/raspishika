@@ -38,26 +38,19 @@ class RaspishikaBot
 
   def initialize
     @logger = Logger.new($stderr, level: Logger::DEBUG)
-    $logger = @logger
     @parser = ScheduleParser.new(logger: @logger)
     @token = ENV['TELEGRAM_BOT_TOKEN']
 
-    Cache.logger = @logger
-    User.logger = @logger
+    ImageGenerator.logger = Cache.logger = User.logger = @logger
     User.restore
   end
   attr_accessor :bot, :logger, :parser
-
-  # def bot
-  #   @mutex.synchronize { @bot }
-  # end
-  # TODO: Use this method instead of @user
 
   def run
     Telegram::Bot::Client.run(@token) do |bot|
       logger.info "Bot started"
       @bot = bot
-      @bot.api.set_my_commands(
+      bot.api.set_my_commands(
         commands: [
           {command: 'start', description: 'Запуск бота'},
           {command: 'help', description: 'Помощь'},
@@ -71,7 +64,7 @@ class RaspishikaBot
         ]
       )
 
-      @bot.listen do |message|
+      bot.listen do |message|
         handle_message message
       end
     end
@@ -111,7 +104,7 @@ class RaspishikaBot
         )
       end
     rescue => e
-      logger.error "Error: #{e.message}\n#{e.backtrace.join("\n")}"
+      logger.error "Unhandled error in `#handle_error`: #{e.message}\n#{e.backtrace.join("\n")}"
       @bot.api.send_message(
         chat_id: message.chat.id,
         text: "Произошла ошибка. Попробуйте позже.",
@@ -261,7 +254,7 @@ class RaspishikaBot
     end
 
     _ = Cache.fetch(:"schedule_#{user.department}_#{user.group}") do
-      @parser.fetch_schedule user.group_info.merge({group: user.group_name})
+      @parser.fetch_schedule user.group_info
     end
     @bot.api.send_photo(
       chat_id: message.chat.id,
@@ -278,7 +271,7 @@ class RaspishikaBot
     end
 
     schedule = Cache.fetch(:"schedule_#{user.department}_#{user.group}") do
-      @parser.fetch_schedule user.group_info.merge({group: user.group_name})
+      @parser.fetch_schedule user.group_info
     end
     text = Schedule.from_raw(schedule).days(0, 2).format
     @bot.api.send_message(chat_id: message.chat.id, text:, reply_markup: DEFAULT_REPLY_MARKUP)
@@ -292,8 +285,7 @@ class RaspishikaBot
     end
 
     schedule = Cache.fetch(:"schedule_#{user.department}_#{user.group}") do
-      # TODO: Add group_name to user.group_info EVERYWHERE.
-      @parser.fetch_schedule user.group_info.merge({group: user.group_name})
+      @parser.fetch_schedule user.group_info
     end
     text = Schedule.from_raw(schedule).left&.format
     text = "Сегодня больше нет пар!" if text.nil? || text.empty?
