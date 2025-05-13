@@ -295,12 +295,9 @@ class RaspishikaBot
       # TODO: Add group_name to user.group_info EVERYWHERE.
       @parser.fetch_schedule user.group_info.merge({group: user.group_name})
     end
-    text = Schedule.from_raw(schedule).left.format
-    @bot.api.send_message(
-      chat_id: message.chat.id,
-      text: text,
-      reply_markup: DEFAULT_REPLY_MARKUP
-    )
+    text = Schedule.from_raw(schedule).left&.format
+    text = "Сегодня больше нет пар!" if text.nil? || text.empty?
+    @bot.api.send_message(chat_id: message.chat.id, text: text, reply_markup: DEFAULT_REPLY_MARKUP)
   end
 
   def configure_timer(message, user)
