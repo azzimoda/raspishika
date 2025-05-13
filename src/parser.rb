@@ -50,6 +50,8 @@ class ScheduleParser
     options.add_argument('--headless')
     options.add_argument('--disable-gpu')
     options.add_argument('--no-sandbox')
+    options.add_argument('--disable-dev-shm-usage')
+    #options.add_argument('--window-size=1280,1024')
 
     driver = Selenium::WebDriver.for(:chrome, options:)
     begin
@@ -95,6 +97,8 @@ class ScheduleParser
     options.add_argument('--headless')
     options.add_argument('--disable-gpu')
     options.add_argument('--no-sandbox')
+    options.add_argument('--disable-dev-shm-usage')
+    #options.add_argument('--window-size=1280,1024')
     options.add_argument('--disable-blink-features=AutomationControlled')
     options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36')
 
@@ -135,8 +139,10 @@ class ScheduleParser
       pp e.backtrace
       nil
     ensure
-      File.write('.debug/schedule.html', html)
-      logger&.debug "Original HTML saved into .debug/schedule.html"
+      debug_dir = File.join('data', 'debug')
+      Dir.mkdir(debug_dir) unless Dir.exist?(debug_dir)
+      File.write(File.join(debug_dir, 'schedule.html'), html)
+      logger&.debug "Original HTML saved into data/debug/schedule.html"
       driver&.quit
     end
   end

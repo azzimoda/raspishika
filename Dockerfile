@@ -1,47 +1,54 @@
-# Use a lightweight Ruby base image
-FROM ruby:3.4.3-slim
+# Use Alpine-based Ruby image
+FROM ruby:3.4.3-alpine
 
 # Install system dependencies
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
+RUN apk update && \
+    apk add --no-cache \
     chromium \
-    chromium-driver \
+    chromium-chromedriver \
     git \
     curl \
-    build-essential \
-    ruby-dev \
-    pkg-config \
     libxml2-dev \
     libxslt-dev \
-    libgmp-dev && \
-    rm -rf /var/lib/apt/lists/*
+    gmp-dev \
+    ttf-freefont \
+    nss \
+    freetype \
+    harfbuzz \
+    ca-certificates && \
+    apk add --no-cache --virtual .build-deps \
+    build-base \
+    ruby-dev
 
-# Set the working directory
+# Set working directory
 WORKDIR /app
 
-# Copy Gemfile and Gemfile.lock first to leverage Docker cache
+# Copy Gemfiles and install dependencies
 COPY Gemfile Gemfile.lock ./
 
-# Install Ruby dependencies
 RUN gem update --system && \
-    gem install bundler  -v '~> 2.6' && \
+    gem install bundler -v '~> 2.6' && \
     bundle config set --local path 'vendor/bundle' && \
     bundle install --jobs=4 --retry=3
 
-# Copy the rest of the application code
+# Copy application code
 COPY . .
 
-# Set environment variables
+# Environment variables
 ENV GEM_HOME=/app/vendor/bundle \
     GEM_PATH=/app/vendor/bundle \
     PATH="/app/vendor/bundle/bin:$PATH" \
-    CACHE=10
+    CACHE=10 \
+    CHROMEDRIVER_PATH=/usr/bin/chromedriver \
+    CHROME_PATH=/usr/bin/chromium-browser \
+    CHROME_BIN=/usr/bin/chromium-browser \
+    DISPLAY=:99
 
 # Create necessary directories
-RUN mkdir -p .data .cache .debug
+RUN mkdir -p data data/cache data/debug
 
-# Clean up build dependencies (optional)
-RUN apt-get purge -y --auto-remove build-essential ruby-dev pkg-config
+# Cleanup build dependencies
+RUN apk del .build-deps
 
-# Command to run the application
+# Application entrypoint
 CMD ["bundle", "exec", "ruby", "src/main.rb"]

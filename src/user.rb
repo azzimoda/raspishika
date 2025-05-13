@@ -1,5 +1,5 @@
 class User
-  BACKUP_FILE = '.data/users.json'
+  BACKUP_FILE = File.join('data', 'users.json')
 
   @users = {}
   @logger = nil

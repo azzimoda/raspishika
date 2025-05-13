@@ -17,7 +17,7 @@ describe ScheduleParser do
   let(:parser) { ScheduleParser.new logger: }
 
   before do
-    @test_schedule_table_html = File.read './.debug/schedule.html'
+    @test_schedule_table_html = File.read 'data/debug/schedule.html'
   end
 
   it 'should fetch schedule html' do
@@ -29,6 +29,8 @@ describe ScheduleParser do
     options.add_argument('--headless')
     options.add_argument('--disable-gpu')
     options.add_argument('--no-sandbox')
+    options.add_argument('--disable-dev-shm-usage')
+    #options.add_argument('--window-size=1280,1024')
 
     driver = Selenium::WebDriver.for(:chrome, options: options)
     begin
@@ -63,7 +65,7 @@ describe Schedule do
   let(:parser) { ScheduleParser.new logger: }
 
   before do
-    # @test_schedule_table_html = File.read('./.debug/schedule.html')
+    # @test_schedule_table_html = File.read('../data/debug/schedule.html')
     # @test_schedule_data = parser.parse_schedule_table Nokogiri::HTML @test_schedule_table_html
     @schedule = Time.parse('2025-04-02').then { |t|
       Schedule.new [{

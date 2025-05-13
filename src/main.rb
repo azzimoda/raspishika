@@ -46,11 +46,11 @@ class RaspishikaBot
     User.logger = @logger
     User.restore
   end
-  attr_accessor :logger, :parser
+  attr_accessor :bot, :logger, :parser
 
-  def bot
-    @mutex.synchronize { @bot }
-  end
+  # def bot
+  #   @mutex.synchronize { @bot }
+  # end
   # TODO: Use this method instead of @user
 
   def run
@@ -265,7 +265,7 @@ class RaspishikaBot
     end
     @bot.api.send_photo(
       chat_id: message.chat.id,
-      photo: Faraday::UploadIO.new(".cache/#{user.department}_#{user.group}.png", 'image/png'),
+      photo: Faraday::UploadIO.new("data/cache/#{user.department}_#{user.group}.png", 'image/png'),
       reply_markup: DEFAULT_REPLY_MARKUP
     )
   end

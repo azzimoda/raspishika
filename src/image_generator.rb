@@ -1,7 +1,7 @@
 module ImageGenerator
   IMAGE_WIDTH = 1200 # 1440 # 1920
   IMAGE_HEIGHT = 800
-  CACHE_DIR = File.expand_path('.cache', __dir__).freeze
+  CACHE_DIR = File.expand_path('../data/cache', __dir__).freeze
   FileUtils.mkdir_p CACHE_DIR
 
   def self.generate(driver, schedule, sid:, gr:, group:, **)
