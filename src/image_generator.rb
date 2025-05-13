@@ -6,7 +6,7 @@ module ImageGenerator
 
   def self.generate(driver, schedule, sid:, gr:, group:, **)
     $logger.info "Generating image for #{sid} #{gr} #{group}"
-    
+
     html = generate_html(schedule, group)
     file_path = File.expand_path("table_template.html", CACHE_DIR)
     File.write(file_path, html)
@@ -61,7 +61,7 @@ module ImageGenerator
   end
 
   def self.generate_table_body schedule
-    schedule.map do |row| 
+    schedule.map do |row|
       <<~HTML
       <tr>
         <td><b>#{row[:pair_number]}</b></td>

@@ -1,5 +1,5 @@
-require './user'
-require './cache'
+require './src/user'
+require './src/cache'
 
 module DebugCommands
   def self.user_info(bot:, user:, message:)

@@ -9,9 +9,8 @@ require 'cgi'
 require 'selenium-webdriver'
 require 'timeout'
 
-require "./parser"
-require './schedule'
-
+require "./src/parser"
+require './src/schedule'
 
 describe ScheduleParser do
   let(:logger) { Logger.new $stdout }
