@@ -5,8 +5,10 @@ pkgs.mkShell {
     bash
     curl
     git
+
     ruby_3_4
     bundler
+
     chromium
     chromedriver
     libxml2.dev
@@ -19,12 +21,12 @@ pkgs.mkShell {
   ];
 
   shellHook = ''
-    export GEM_HOME=$(pwd)/.gem
+    export GEM_HOME=$PWD/.gems
     export GEM_PATH=$GEM_HOME
+    export BUNDLE_PATH=$GEM_HOME
     export PATH=$PATH:$GEM_PATH
 
-    export CACHE=10 # Default cache expiration time
-    export CROMEDRIVER_PATH=${pkgs.chromedriver}/bin/chormedriver
+    export CROMEDRIVER_PATH=${pkgs.chromedriver}/bin/chromedriver
     export CHROME_PATH=${pkgs.chromium}/bin/chromium
     export CHROME_BIN=${pkgs.chromium}/bin/chromium
     export DISPLAY=:99
@@ -37,13 +39,13 @@ pkgs.mkShell {
 
     mkdir -p data data/cache data/debug
 
-    if [ ! -d .gem ]; then
+    if [ ! -d "$GEM_HOME" ]; then
       gem install bundler -v '~> 2.6'
-      bundle config set --local path '.gem'
-      bundle install --jobs=4 --retry=3
+      bundle config set --local path "$GEM_HOME"
     fi
+    bundle install --jobs=4 --retry=3
 
     echo TELEGRAM_BOT_TOKEN=$TELEGRAM_BOT_TOKEN
-    echo "Welcome to the Nix environment for $(pwd)!"
+    echo "Use bundle exec ruby src/main.rb to run the bot"
   '';
 }
