@@ -64,8 +64,16 @@ class RaspishikaBot
         ]
       )
 
-      bot.listen do |message|
-        handle_message message
+      begin
+        bot.listen { |message| handle_message message }
+      rescue Telegram::Bot::Exceptions::ResponseError => e
+        logger.error "Telegram API error: #{e.detailed_message}"
+        sleep 5
+        retry
+      rescue => e
+        logger.error "Unhandled error on `bot.listen`: #{e.detailed_message}"
+        sleep 5
+        retry
       end
     end
   rescue Interrupt
