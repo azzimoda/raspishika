@@ -36,6 +36,24 @@ class RaspishikaBot
     one_time_keyboard: true,
   }.to_json.freeze
 
+  HELP_MESSAGE = <<~MARKDOWN
+  Привет! Я бот для получения расписания. Вот список доступных команд:
+
+  - /start — Запустить бота.
+  - /help — Показать это сообщение помощи.
+  - /set_group — Выбрать или изменить группу для получения расписания. Следуйте инструкциям: сначала выберите отделение, затем группу.
+  - /week — Получить расписание на неделю.
+  - /today_tomorrow — Получить расписание на сегодня и завтра.
+  - /left — Получить информацию об оставшихся парах на сегодня.
+  - /set_timer — Задать таймер (в разработке).
+  - /off_timer — Выключить таймер (в разработке).
+  - /cancel — Отменить текущее действие.
+
+  Для использования команд /week, /today_tomorrow, /left необходимо сначала задать группу с помощью /set_group.
+
+  Вы также можете использовать кнопки клавиатуры для быстрого доступа к основным функциям.
+  MARKDOWN
+
   def initialize
     @logger = Logger.new($stderr, level: Logger::DEBUG)
     @parser = ScheduleParser.new(logger: @logger)
@@ -125,9 +143,7 @@ class RaspishikaBot
   def start_message(message, user)
     @bot.api.send_message(
       chat_id: message.chat.id,
-      text:
-        "Привет! Используй /set_group чтобы задать группу для регулярного расписания " \
-        "и кнопки ниже для других действий.",
+      text: "Привет! Используй /set_group чтобы задать группу и кнопки ниже для других действий.",
       reply_markup: DEFAULT_REPLY_MARKUP
     )
   end
@@ -135,7 +151,7 @@ class RaspishikaBot
   def help_message(message, user)
     @bot.api.send_message(
       chat_id: message.chat.id,
-      text: "Помощи не будет(",
+      text: HELP_MESSAGE,
       reply_markup: DEFAULT_REPLY_MARKUP
     )
   end
