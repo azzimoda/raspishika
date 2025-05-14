@@ -4,7 +4,6 @@ require 'nokogiri'
 require 'open-uri'
 require 'uri'
 require 'cgi'
-require 'selenium-webdriver'
 require 'timeout'
 
 require './src/cache'
