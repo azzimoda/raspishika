@@ -318,7 +318,12 @@ class RaspishikaBot
     end
     text = Schedule.from_raw(schedule).left&.format
     text = "Сегодня больше нет пар!" if text.nil? || text.empty?
-    @bot.api.send_message(chat_id: message.chat.id, text: text, reply_markup: DEFAULT_REPLY_MARKUP)
+    @bot.api.send_message(
+      chat_id: message.chat.id,
+      text:,
+      parse_mode: 'Markdown',
+      reply_markup: DEFAULT_REPLY_MARKUP
+    )
   end
 
   def configure_timer(message, user)
