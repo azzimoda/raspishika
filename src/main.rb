@@ -17,6 +17,8 @@ if ENV['TELEGRAM_BOT_TOKEN'].nil?
   quit
 end
 
+HOUR = 60 * 60
+
 class RaspishikaBot
   DEFAULT_KEYBOARD = [
     ["Оставшиеся пары"],
@@ -160,7 +162,7 @@ class RaspishikaBot
 
   def configure_group(message, user)
     # TODO: Add loading message like in `#select_group`.
-    departments = Cache.fetch(:departments) { parser.fetch_departments }
+    departments = Cache.fetch(:departments, expires_in: HOUR) { parser.fetch_departments }
     if departments.any?
       user.departments = departments.keys
       user.state = :select_department
@@ -186,10 +188,10 @@ class RaspishikaBot
 
   def select_department(message, user)
     # TODO: Add loading message like in `#select_group`.
-    departments = Cache.fetch(:departments) { parser.fetch_departments }
-    # Additional check
+    departments = Cache.fetch(:departments, expires_in: HOUR) { parser.fetch_departments }
+
     if departments.key? message.text
-      groups = Cache.fetch(:"groups_#{message.text.downcase}") do
+      groups = Cache.fetch(:"groups_#{message.text.downcase}", expires_in: HOUR) do
         parser.fetch_groups departments[message.text]
       end
       if groups.any?
@@ -278,7 +280,7 @@ class RaspishikaBot
       return configure_group(message, user)
     end
 
-    _ = Cache.fetch(:"schedule_#{user.department}_#{user.group}") do
+    Cache.fetch(:"schedule_#{user.department}_#{user.group}") do
       parser.fetch_schedule user.group_info
     end
     bot.api.send_photo(
