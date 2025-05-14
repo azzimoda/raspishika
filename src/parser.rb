@@ -13,30 +13,22 @@ class ScheduleParser
 
   def initialize logger: nil
     @logger = logger
-    @departments = {}
-    @group_schedules = {}
-    @user_context = {}
   end
   attr_accessor :logger
-  attr_reader :user_context
 
   def fetch_departments
-    logger&.info "Fetching departaments..."
+    logger&.info "Fetching departments..."
 
     url = "#{BASE_URL}/site/index.php?option=com_content&view=article&id=1582&Itemid=247"
     doc = Nokogiri::HTML(URI.open(url))
 
-    doc.css('ul.mod-menu li.col-lg.col-md-6 a').each do |link| # Add classes .col-lg and .col-md-6 to li
+    doc.css('ul.mod-menu li.col-lg.col-md-6 a').map do |link|
       department_name = link.text.strip
       department_url = link['href'].gsub('&amp;', '&')
-      @departments[department_name] = "#{BASE_URL}#{department_url}"
-    end
-
-    @departments.filter! do |name, url|
-      name.downcase.then { |s| s.include?('отделение') || s == 'заочное обучение' }
-    end
-    logger&.debug @departments
-    @departments
+      [department_name, "#{BASE_URL}#{department_url}"]
+    end.to_h.filter! do |name, url|
+      name.downcase.then { it.include?('отделение') || it == 'заочное обучение' }
+    end.tap { logger&.debug it }
   rescue => e
     logger&.error "Unhandle error in `#fetch_departments`: #{e.message}"
     {}
@@ -51,7 +43,6 @@ class ScheduleParser
     options.add_argument('--disable-gpu')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
-    #options.add_argument('--window-size=1280,1024')
 
     driver = Selenium::WebDriver.for(:chrome, options:)
     begin
@@ -98,7 +89,6 @@ class ScheduleParser
     options.add_argument('--disable-gpu')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
-    #options.add_argument('--window-size=1280,1024')
     options.add_argument('--disable-blink-features=AutomationControlled')
     options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36')
 

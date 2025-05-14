@@ -158,7 +158,7 @@ class RaspishikaBot
 
   def configure_group(message, user)
     # TODO: Add loading message like in `#select_group`.
-    departments = Cache.fetch(:departments) { @parser.fetch_departments }
+    departments = Cache.fetch(:departments) { parser.fetch_departments }
     if departments.any?
       user.departments = departments.keys
       user.state = :select_department
@@ -184,11 +184,11 @@ class RaspishikaBot
 
   def select_department(message, user)
     # TODO: Add loading message like in `#select_group`.
-    departments = Cache.fetch(:departments) { @parser.fetch_departments }
+    departments = Cache.fetch(:departments) { parser.fetch_departments }
     # Additional check
     if departments.key? message.text
       groups = Cache.fetch(:"groups_#{message.text.downcase}") do
-        @parser.fetch_groups departments[message.text]
+        parser.fetch_groups departments[message.text]
       end
       if groups.any?
         user.department_url = departments[message.text]
@@ -235,14 +235,13 @@ class RaspishikaBot
       reply_markup: { remove_keyboard: true }.to_json
     )
 
-    # groups = Cache.fetch(:"groups_#{group}") { @parser.fetch_groups user.department_url }
     if (group_info = user.groups[message.text])
       user.department = group_info[:sid]
       user.group = group_info[:gr]
       user.group_name = message.text
 
       schedule = Cache.fetch(:"schedule_#{user.department}_#{user.group}") do
-        @parser.fetch_schedule group_info.merge({group: message.text})
+        parser.fetch_schedule group_info.merge({group: message.text})
       end
       text = if schedule then "Теперь ты в группе #{message.text}"
       else "Не удалось получить данные для этой группы. Попробуйте позже."
@@ -278,7 +277,7 @@ class RaspishikaBot
     end
 
     _ = Cache.fetch(:"schedule_#{user.department}_#{user.group}") do
-      @parser.fetch_schedule user.group_info
+      parser.fetch_schedule user.group_info
     end
     @bot.api.send_photo(
       chat_id: message.chat.id,
@@ -295,7 +294,7 @@ class RaspishikaBot
     end
 
     schedule = Cache.fetch(:"schedule_#{user.department}_#{user.group}") do
-      @parser.fetch_schedule user.group_info
+      parser.fetch_schedule user.group_info
     end
     text = Schedule.from_raw(schedule).days(0, 2).format
     @bot.api.send_message(
@@ -314,7 +313,7 @@ class RaspishikaBot
     end
 
     schedule = Cache.fetch(:"schedule_#{user.department}_#{user.group}") do
-      @parser.fetch_schedule user.group_info
+      parser.fetch_schedule user.group_info
     end
     text = Schedule.from_raw(schedule).left&.format
     text = "Сегодня больше нет пар!" if text.nil? || text.empty?
