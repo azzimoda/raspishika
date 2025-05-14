@@ -31,6 +31,8 @@ pkgs.mkShell {
     export CHROME_BIN=${pkgs.chromium}/bin/chromium
     export DISPLAY=:99
 
+    export CACHE=10
+
     if [ -f .token ]; then
       export TELEGRAM_BOT_TOKEN=$(cat .token)
     else
