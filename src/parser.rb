@@ -2,7 +2,7 @@ require 'nokogiri'
 require 'open-uri'
 require 'uri'
 require 'cgi'
-require 'selenium-webdriver'
+require 'playwright' # NOTE: Playwright is synchronouse YET
 require 'timeout'
 
 require './src/image_generator'
@@ -11,10 +11,35 @@ class ScheduleParser
   TIMEOUT = 30
   BASE_URL = 'https://mnokol.tyuiu.ru'.freeze
 
-  def initialize logger: nil
+  def initialize(logger: nil)
     @logger = logger
+    @thread = nil
+    @browser = nil
+    @mutex = Mutex.new
   end
   attr_accessor :logger
+
+  def initialize_browser_thread
+    logger&.info "Initializing browser thread..."
+    @thread = Thread.new do
+      Playwright.create(playwright_cli_executable_path: 'npx playwright') do |playwright|
+        @browser = playwright.chromium.launch(headless: true)
+        pp @browser
+        sleep 10 while @browser.connected?
+      end
+    end
+    logger&.info "Browser thread is stopped."
+  end
+
+  def stop_browser_thread
+    logger&.info "Stopping browser thread..."
+    @browser&.close
+    @thread&.join
+  end
+
+  def use_browser(&block)
+    @mutex.synchronize { block.call @browser }
+  end
 
   def fetch_departments
     logger&.info "Fetching departments..."
@@ -38,41 +63,30 @@ class ScheduleParser
     logger&.info "Fetching groups for #{department_url}"
     return {} if department_url.nil? || department_url.empty?
 
-    options = Selenium::WebDriver::Chrome::Options.new
-    options.add_argument('--headless')
-    options.add_argument('--disable-gpu')
-    options.add_argument('--no-sandbox')
-    options.add_argument('--disable-dev-shm-usage')
+    groups = {}
 
-    driver = Selenium::WebDriver.for(:chrome, options:)
-    begin
-      driver.navigate.to(department_url)
-      wait = Selenium::WebDriver::Wait.new(timeout: TIMEOUT)
+    use_browser do |browser|
+      page = browser.new_page
+      page.goto(department_url, timeout: TIMEOUT * 1000)
 
-      iframe = wait.until { driver.find_element(:css, 'div.com-content-article__body iframe') }
-      driver.switch_to.frame(iframe)
+      iframe = page.wait_for_selector('div.com-content-article__body iframe', timeout: TIMEOUT * 1000)
+      page = iframe.content_frame
 
-      select = wait.until { driver.find_element(:id, 'groups') }
-      groups = {}
+      select = page.wait_for_selector('#groups', timeout: TIMEOUT * 1000)
+      options = page.eval_on_selector_all('#groups option', 'els => els.map(el => ({ text: el.textContent.trim(), value: el.value, sid: el.getAttribute("sid") }))')
 
-      select.find_elements(:tag_name, 'option').each do |option|
-        next if option['value'] == '0'
-        groups[option.text.strip] = {
-          gr: option['value'],
-          sid: option.attribute('sid')
-        }
+      options.each do |opt|
+        next if opt['value'] == '0'
+        groups[opt['text']] = { gr: opt['value'], sid: opt['sid'] }
       end
-
-      groups
-    rescue => e
-      logger&.error "Unhandled error in `#fetch_groups`: #{e.message}"
-      {}
-    ensure
-      driver&.quit
     end
+
+    groups
+  rescue => e
+    logger&.error "Unhandled error in `#fetch_groups`: #{e.message}"
+    {}
   end
 
-  # TODO: Try to use the previous faster algorithm; maybe there is no difference in effectivity.
   def fetch_schedule(group_info)
     logger&.debug "Fetching schedule for group #{group_info}"
     unless group_info[:gr] && group_info[:sid]
@@ -84,48 +98,34 @@ class ScheduleParser
     url = "#{base_url}?action=group&union=0&sid=#{group_info[:sid]}&gr=#{group_info[:gr]}&year=#{Time.now.year}&vr=1"
     logger&.info "Fetching schedule from: #{url}"
 
-    options = Selenium::WebDriver::Chrome::Options.new
-    options.add_argument('--headless')
-    options.add_argument('--disable-gpu')
-    options.add_argument('--no-sandbox')
-    options.add_argument('--disable-dev-shm-usage')
-    options.add_argument('--disable-blink-features=AutomationControlled')
-    options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36')
+    html = nil
+    use_browser do |browser|
+      page = browser.new_page
 
-    driver = Selenium::WebDriver.for(:chrome, options:)
-    driver.manage.timeouts.page_load = TIMEOUT
+        page.set_extra_http_headers(
+        'Referer' => 'https://mnokol.tyuiu.ru/',
+        'Accept-Language' => 'ru-RU,ru;q=0.9',
+        'Sec-Fetch-Dest' => 'document',
+        'Sec-Fetch-Mode' => 'navigate'
+      )
 
-    driver.execute_cdp('Network.setExtraHTTPHeaders', headers: {
-      'Referer' => 'https://mnokol.tyuiu.ru/',
-      'Sec-Fetch-Dest' => 'document',
-      'Sec-Fetch-Mode' => 'navigate',
-      'Accept-Language' => 'ru-RU,ru;q=0.9'
-    })
-    driver.get 'https://mnokol.tyuiu.ru/'
-    sleep rand(2..5) # Рандомная задержка
+      page.goto('https://mnokol.tyuiu.ru/')
+      sleep rand(2..5)
 
-    begin
-      driver.navigate.to(url)
-
-      driver.action.move_by(0, rand(100..300)).perform
+      page.goto(url, timeout: TIMEOUT * 1000)
+      page.mouse.move(0, rand(100..300))
       sleep 0.5
 
       logger&.info "Waiting for table..."
-      sleep 5
-      html = driver.page_source
-      wait = Selenium::WebDriver::Wait.new(timeout: TIMEOUT)
-      _ = wait.until { driver.find_element(id: 'main_table').displayed? }
-      html = driver.page_source
+      page.wait_for_selector('#main_table', timeout: TIMEOUT * 1000)
+      html = page.content
 
-      doc = Nokogiri::HTML html
+      doc = Nokogiri::HTML(html)
       schedule = parse_schedule_table(doc.at_css('table#main_table')) || "Расписание не найдено"
-      ImageGenerator.generate(driver, schedule, **group_info)
+      ImageGenerator.generate(page, schedule, **group_info)
       schedule
-    rescue Selenium::WebDriver::Error::TimeoutError => e
-      logger&.error "Web driver timeout error: #{e.detailed_message}"
-      nil
     rescue => e
-      logger&.error "Unhandled error in `#fetch_schedule`: #{e.detailed_message}"
+      logger&.error "Unhandled error in `#fetch_schedule`: #{e.message}"
       pp e.backtrace
       nil
     ensure
@@ -133,7 +133,6 @@ class ScheduleParser
       Dir.mkdir(debug_dir) unless Dir.exist?(debug_dir)
       File.write(File.join(debug_dir, 'schedule.html'), html)
       logger&.debug "Original HTML saved into data/debug/schedule.html"
-      driver&.quit
     end
   end
 

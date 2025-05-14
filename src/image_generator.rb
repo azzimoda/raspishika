@@ -1,5 +1,5 @@
 module ImageGenerator
-  IMAGE_WIDTH = 1200 # 1440 # 1920
+  IMAGE_WIDTH = 1200
   IMAGE_HEIGHT = 800
   CACHE_DIR = File.expand_path('../data/cache', __dir__).freeze
   FileUtils.mkdir_p CACHE_DIR
@@ -10,21 +10,21 @@ module ImageGenerator
     attr_accessor :logger
   end
 
-  def self.generate(driver, schedule, sid:, gr:, group:, **)
+  def self.generate(page, schedule, sid:, gr:, group:, **)
     logger&.info "Generating image for #{sid} #{gr} #{group}"
 
     html = generate_html(schedule, group)
     file_path = File.expand_path("table_template.html", CACHE_DIR)
     File.write(file_path, html)
 
-    driver.navigate.to "file://#{File.absolute_path(file_path)}"
+    page.set_viewport_size(width: IMAGE_WIDTH, height: IMAGE_HEIGHT)
+    page.goto "file://#{File.absolute_path(file_path)}"
     sleep 1
 
-    driver.manage.window.resize_to(IMAGE_WIDTH, IMAGE_HEIGHT)
-    file_path = File.expand_path("#{sid}_#{gr}.png", CACHE_DIR)
-    driver.save_screenshot(file_path)
+    output_path = File.expand_path("#{sid}_#{gr}.png", CACHE_DIR)
+    page.screenshot(path: output_path)
 
-    logger&.info "Screenshot saved to #{file_path}"
+    logger&.info "Screenshot saved to #{output_path}"
   end
 
   private

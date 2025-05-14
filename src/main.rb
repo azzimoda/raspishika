@@ -65,6 +65,8 @@ class RaspishikaBot
   attr_accessor :bot, :logger, :parser
 
   def run
+    @parser.initialize_browser_thread
+
     Telegram::Bot::Client.run(@token) do |bot|
       logger.info "Bot started"
       @bot = bot
@@ -99,6 +101,7 @@ class RaspishikaBot
     logger.warn "Keyboard interruption"
   ensure
     User.backup
+    @parser.stop_browser_thread
   end
 
   private
@@ -123,7 +126,7 @@ class RaspishikaBot
       when '/cancel', 'отмена' then cancel_action message, user
       when %r(^/debug\s+\w+$) then debug_command message, user
       else
-        @bot.api.send_message(
+        bot.api.send_message(
           chat_id: message.chat.id,
           text: "Я не знаю как ответить на это сообщение :(",
           reply_markup: DEFAULT_REPLY_MARKUP
@@ -131,7 +134,7 @@ class RaspishikaBot
       end
     rescue => e
       logger.error "Unhandled error in `#handle_error`: #{e.message}\n#{e.backtrace.join("\n")}"
-      @bot.api.send_message(
+      bot.api.send_message(
         chat_id: message.chat.id,
         text: "Произошла ошибка. Попробуйте позже.",
         reply_markup: DEFAULT_REPLY_MARKUP
@@ -141,7 +144,7 @@ class RaspishikaBot
   end
 
   def start_message(message, user)
-    @bot.api.send_message(
+    bot.api.send_message(
       chat_id: message.chat.id,
       text: "Привет! Используй /set_group чтобы задать группу и кнопки ниже для других действий.",
       reply_markup: DEFAULT_REPLY_MARKUP
@@ -149,7 +152,7 @@ class RaspishikaBot
   end
 
   def help_message(message, user)
-    @bot.api.send_message(
+    bot.api.send_message(
       chat_id: message.chat.id,
       text: HELP_MESSAGE,
       reply_markup: DEFAULT_REPLY_MARKUP
@@ -164,7 +167,7 @@ class RaspishikaBot
       user.state = :select_department
 
       keyboard = [["Отмена"]] + departments.keys.each_slice(2).to_a
-      @bot.api.send_message(
+      bot.api.send_message(
         chat_id: message.chat.id,
         text: "Выбери отделение",
         reply_markup: {
@@ -174,7 +177,7 @@ class RaspishikaBot
         }.to_json
       )
     else
-      @bot.api.send_message(
+      bot.api.send_message(
         chat_id: message.chat.id,
         text: "Не удалось загрузить отделения",
         reply_markup: DEFAULT_REPLY_MARKUP
@@ -198,7 +201,7 @@ class RaspishikaBot
         user.state = :select_group
 
         keyboard = [["Отмена"]] + groups.keys.each_slice(2).to_a
-        @bot.api.send_message(
+        bot.api.send_message(
           chat_id: message.chat.id,
           text: "Выбери группу",
           reply_markup: {
@@ -208,7 +211,7 @@ class RaspishikaBot
           }.to_json
         )
       else
-        @bot.api.send_message(
+        bot.api.send_message(
           chat_id: message.chat.id,
           text: "Не удалось загрузить группы для этого отделения",
           reply_markup: DEFAULT_REPLY_MARKUP
@@ -220,7 +223,7 @@ class RaspishikaBot
       user.groups = {}
       user.state = :default
       logger.warn "Cached departments differ from fetched"
-      @bot.api.send_message(
+      bot.api.send_message(
         chat_id: message.chat.id,
         text: "Не удалось загрузить отделение",
         reply_markup: DEFAULT_REPLY_MARKUP
@@ -229,7 +232,7 @@ class RaspishikaBot
   end
 
   def select_group(message, user)
-    sent_message = @bot.api.send_message(
+    sent_message = bot.api.send_message(
       chat_id: message.chat.id,
       text: "Сверяю данные...",
       reply_markup: { remove_keyboard: true }.to_json
@@ -248,7 +251,7 @@ class RaspishikaBot
       end
 
       bot.api.delete_message(chat_id: message.chat.id, message_id: sent_message.message_id)
-      @bot.api.send_message(
+      bot.api.send_message(
         chat_id: message.chat.id,
         text: text,
         reply_markup: DEFAULT_REPLY_MARKUP
@@ -257,8 +260,8 @@ class RaspishikaBot
       user.department = nil
       user.group = nil
 
-      @bot.api.delete_message(chat_id: message.chat.id, message_id: sent_message.message_id)
-      @bot.api.send_message(
+      bot.api.delete_message(chat_id: message.chat.id, message_id: sent_message.message_id)
+      bot.api.send_message(
         chat_id: message.chat.id,
         text: "Группа #{message.text} не найдена. Доступные группы:\n#{user.groups.keys.join(" , ")}",
         reply_markup: DEFAULT_REPLY_MARKUP
@@ -279,7 +282,7 @@ class RaspishikaBot
     _ = Cache.fetch(:"schedule_#{user.department}_#{user.group}") do
       parser.fetch_schedule user.group_info
     end
-    @bot.api.send_photo(
+    bot.api.send_photo(
       chat_id: message.chat.id,
       photo: Faraday::UploadIO.new("data/cache/#{user.department}_#{user.group}.png", 'image/png'),
       reply_markup: DEFAULT_REPLY_MARKUP
@@ -297,7 +300,7 @@ class RaspishikaBot
       parser.fetch_schedule user.group_info
     end
     text = Schedule.from_raw(schedule).days(0, 2).format
-    @bot.api.send_message(
+    bot.api.send_message(
       chat_id: message.chat.id,
       text:,
       parse_mode: 'Markdown',
@@ -317,7 +320,7 @@ class RaspishikaBot
     end
     text = Schedule.from_raw(schedule).left&.format
     text = "Сегодня больше нет пар!" if text.nil? || text.empty?
-    @bot.api.send_message(
+    bot.api.send_message(
       chat_id: message.chat.id,
       text:,
       parse_mode: 'Markdown',
@@ -326,7 +329,7 @@ class RaspishikaBot
   end
 
   def configure_timer(message, user)
-    @bot.api.send_message(
+    bot.api.send_message(
       chat_id: message.chat.id,
       text: "Таймер не реализован",
       reply_markup: DEFAULT_REPLY_MARKUP
@@ -342,7 +345,7 @@ class RaspishikaBot
     logger.info "Calling test #{debug_command_name}..."
     unless DebugCommands.respond_to? debug_command_name
       logger.warn "Test #{debug_command_name} not found"
-      @bot.api.send_message(
+      bot.api.send_message(
         chat_id: message.chat.id,
         text: "Тест `#{debug_command_name}` не найден.\n\nДоступные тесты: #{DebugCommands.methods.join(', ')}",
         reply_markup: DEFAULT_REPLY_MARKUP
@@ -356,10 +359,10 @@ class RaspishikaBot
   def cancel_action (message, user)
     case user.state
     when :default
-      @bot.api.send_message(chat_id: message.chat.id, text: "Нечего отменять")
+      bot.api.send_message(chat_id: message.chat.id, text: "Нечего отменять")
     else # :select_department, :select_group, :select_timer
       user.state = :default
-      @bot.api.send_message(
+      bot.api.send_message(
         chat_id: message.chat.id,
         text: "Действие отменено",
         reply_markup: DEFAULT_REPLY_MARKUP

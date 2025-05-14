@@ -9,8 +9,7 @@ pkgs.mkShell {
     ruby_3_4
     bundler
 
-    chromium
-    chromedriver
+    nodejs_20
     libxml2.dev
     libxslt.dev
     gmp.dev
@@ -25,11 +24,6 @@ pkgs.mkShell {
     export GEM_PATH=$GEM_HOME
     export BUNDLE_PATH=$GEM_HOME
     export PATH=$PATH:$GEM_PATH
-
-    export CROMEDRIVER_PATH=${pkgs.chromedriver}/bin/chromedriver
-    export CHROME_PATH=${pkgs.chromium}/bin/chromium
-    export CHROME_BIN=${pkgs.chromium}/bin/chromium
-    export DISPLAY=:99
 
     export CACHE=10
 
@@ -46,6 +40,12 @@ pkgs.mkShell {
       bundle config set --local path "$GEM_HOME"
     fi
     bundle install --jobs=4 --retry=3
+
+    if [ ! -d "playwright-install-flag" ]; then
+      echo "Installing Playwright browsers..."
+      bundle exec playwright install chromium
+      mkdir playwright-install-flag
+    fi
 
     echo TELEGRAM_BOT_TOKEN=$TELEGRAM_BOT_TOKEN
     echo "Use bundle exec ruby src/main.rb to run the bot"
