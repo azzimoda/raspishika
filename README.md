@@ -4,8 +4,13 @@ Telegram-бот для удобного расписания МПК ТИУ.
 
 ## Deploy (Docker way)
 
-`docker build -t ruby-mpk-bot .`
+```bash
+docker build -t ruby-mpk-bot .
+```
 
-`docker run -it --rm \
- -e TELEGRAM_BOT_TOKEN=your_bot_token \
- ruby-mpk-bot`
+```bash
+docker run -it --rm \
+  -v ./data:/app/data \
+  -e TELEGRAM_BOT_TOKEN=your_bot_token \
+  ruby-mpk-bot
+```

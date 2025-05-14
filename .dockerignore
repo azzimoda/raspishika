@@ -7,3 +7,5 @@ shell.nix
 .gitignore
 
 tests/
+
+data/
