@@ -41,10 +41,11 @@ pkgs.mkShell {
     fi
     bundle install --jobs=4 --retry=3
 
-    if [ ! -d "playwright-install-flag" ]; then
+    if [ ! -d ".playwright-install-flag" ]; then
       echo "Installing Playwright browsers..."
-      bundle exec playwright install chromium
-      mkdir playwright-install-flag
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install playwright && \
+        npx playwright install chromium && \
+        mkdir .playwright-install-flag
     fi
 
     alias run='bundle exec ruby src/main.rb'

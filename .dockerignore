@@ -9,3 +9,5 @@ shell.nix
 tests/
 
 data/
+
+node_modules/
