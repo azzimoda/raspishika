@@ -47,7 +47,9 @@ pkgs.mkShell {
       mkdir playwright-install-flag
     fi
 
+    alias run='bundle exec ruby src/main.rb'
+
     echo TELEGRAM_BOT_TOKEN=$TELEGRAM_BOT_TOKEN
-    echo "Use bundle exec ruby src/main.rb to run the bot"
+    echo "Use 'run' to run the bot (alias of 'bundle exec ruby src/main.rb')"
   '';
 }
