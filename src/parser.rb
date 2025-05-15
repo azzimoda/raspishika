@@ -15,20 +15,26 @@ class ScheduleParser
     @logger = logger
     @thread = nil
     @browser = nil
+    @ready = false
     @mutex = Mutex.new
   end
-  attr_accessor :logger
+  attr_accessor :logger, :ready
+
+  def ready?
+    @ready
+  end
 
   def initialize_browser_thread
     logger&.info "Initializing browser thread..."
     @thread = Thread.new do
       Playwright.create(playwright_cli_executable_path: 'npx playwright') do |playwright|
         @browser = playwright.chromium.launch(headless: true)
-        pp @browser
-        sleep 10 while @browser.connected?
+        logger&.info "Browser is ready"
+        @ready = true
+        sleep 1 while @browser.connected?
       end
+      logger&.info "Browser thread is stopped."
     end
-    logger&.info "Browser thread is stopped."
   end
 
   def stop_browser_thread
@@ -168,7 +174,6 @@ class ScheduleParser
       row.css('td:nth-child(n+3)').each_with_index do |day_cell, day_index|
         day_info = day_headers[day_index] || {}
         day_info[:replaced] = day_cell.css('table.zamena').any?
-
         time_slot[:days] << parse_day_entry(day_cell, day_info)
       end
       schedule << time_slot
@@ -179,21 +184,25 @@ class ScheduleParser
   private
 
   def parse_day_entry day_cell, day_info
-    case
+    day_info.merge case
+    when day_cell['class']&.include?('head_urok_block') && day_cell.text.strip.downcase == 'нет занятий'
+      {type: :empty}
+    when day_cell.text.downcase.include?('снято') || day_cell.at_css('.disc')&.text&.strip&.empty?
+      {type: :empty}
+    when day_cell['class']&.include?('head_urok_iga')
+      {type: :iga, content: day_cell.text.strip}
     when day_cell['class']&.include?('event')
       # Event
-      {type: :event, event: day_cell.text.strip}.merge day_info
+      {type: :event, content: day_cell.text.strip}
     when day_cell['class']&.include?('head_urok_praktik')
-      # Practice
-      {type: :practice, practice: day_cell.text.strip}.merge day_info
-    when day_cell.text.downcase.include?('снято') || day_cell.at_css('.disc')&.text&.strip&.empty?
-      {type: :empty}.merge day_info
+      # Practice # TODO: Check formatting, maybe it's like a subject
+      {type: :practice, content: day_cell.text.strip}
     else
-      {type: :subject, subject: {
+      {type: :subject, content: {
         discipline: day_cell.at_css('.disc')&.text&.strip,
         teacher: day_cell.at_css('.prep')&.text&.strip,
         classroom: day_cell.at_css('.cab')&.text&.strip
-      }}.merge day_info
+      }}
     end
   end
 end

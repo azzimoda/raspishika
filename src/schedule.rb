@@ -35,11 +35,10 @@ class Schedule
 
       schedule.each do |time_slot|
         time_slot[:days].each_with_index do |day_info, day_index|
-          # Create a time slot entry for this day
           days_schedule[day_index][:pairs] << {
             pair_number: time_slot[:pair_number],
             time_range: time_slot[:time_range],
-        }.merge(day_info.slice(:type, :replaced, :subject, :event, :practice))
+          }.merge(day_info.slice(:type, :replaced, :content))
         end
       end
 
@@ -121,20 +120,20 @@ class Schedule
     @data.map do |day|
       weekday = WEEKDAY_SHORTS[day[:weekday].downcase].upcase
       pairs = day[:pairs].map.with_index do |pair, index|
-        next if pair[:type] == :empty # [:discipline]&.strip&.empty?
+        next if pair[:type] == :empty
 
         classroom = ""
         name = case pair[:type]
         when :subject
-          classroom = " | #{pair[:subject][:classroom]}"
-          teacher = if (parts = pair[:subject][:teacher].split).size == 3
+          classroom = " | #{pair[:content][:classroom]}"
+          teacher = if (parts = pair[:content][:teacher].split).size == 3
             "#{parts.first} #{parts[1][0]}.#{parts[2][0]}."
           else
-            pair[:subject][:teacher]
+            pair[:content][:teacher]
           end
-          "\n*#{pair[:subject][:discipline]}*\n#{teacher}"
+          "\n*#{pair[:content][:discipline]}*\n#{teacher}"
         when :event
-          " — #{pair[:subject][:discipline]}"
+          " — #{pair[:content]}"
         end
 
         "#{pair[:pair_number]} | #{pair[:time_range]}#{classroom}#{name}"

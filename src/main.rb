@@ -66,10 +66,10 @@ class RaspishikaBot
   attr_accessor :bot, :logger, :parser
 
   def run
+    logger.info "Starting bot..."
     @parser.initialize_browser_thread
 
     Telegram::Bot::Client.run(@token) do |bot|
-      logger.info "Bot started"
       @bot = bot
       bot.api.set_my_commands(
         commands: [
@@ -85,7 +85,10 @@ class RaspishikaBot
         ]
       )
 
+      sleep 1 until @parser.ready?
+
       begin
+        logger.info "Running bot listen loop..."
         bot.listen { |message| handle_message message }
       rescue Telegram::Bot::Exceptions::ResponseError => e
         logger.error "Telegram API error: #{e.detailed_message}"
@@ -115,7 +118,6 @@ class RaspishikaBot
       when '/start' then start_message message, user
       when '/help' then help_message message, user
       when '/set_group', 'выбрать другую группу' then configure_group message, user
-      # TODO: Try to optimize the line length with DS.
       when ->(t) { user.state == :select_department && user.departments.map(&:downcase).include?(t) }
         select_department message, user
       when ->(t) { user.groups.keys.map(&:downcase).include?(t) }
@@ -130,11 +132,10 @@ class RaspishikaBot
         bot.api.send_message(
           chat_id: message.chat.id,
           text: "Я не знаю как ответить на это сообщение :(",
-          reply_markup: DEFAULT_REPLY_MARKUP
         )
       end
     rescue => e
-      logger.error "Unhandled error in `#handle_error`: #{e.message}\n#{e.backtrace.join("\n")}"
+      logger.error "Unhandled error in `#handle_message`: #{e.message}\n#{e.backtrace.join("\n")}"
       bot.api.send_message(
         chat_id: message.chat.id,
         text: "Произошла ошибка. Попробуйте позже.",
@@ -360,7 +361,11 @@ class RaspishikaBot
   def cancel_action (message, user)
     case user.state
     when :default
-      bot.api.send_message(chat_id: message.chat.id, text: "Нечего отменять")
+      bot.api.send_message(
+        chat_id: message.chat.id,
+        text: "Нечего отменять",
+        reply_markup: DEFAULT_REPLY_MARKUP
+      )
     else # :select_department, :select_group, :select_timer
       user.state = :default
       bot.api.send_message(

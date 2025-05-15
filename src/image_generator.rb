@@ -36,12 +36,17 @@ module ImageGenerator
     <head>
       <style>
         body { font-family: Arial, sans-serif; font-size: 10px; margin: 20px; }
-        table#main_table { border-collapse: collapse; width: 100%; }
-        th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
-        th { background-color: #f2f2f2; }
-        .event { background-color: #f9f9f9; }
-        .replaced { background-color: #ffcccc; }
+        table#main_table { border-collapse: collapse; table-layout: fixed; width: 100%; }
+        th, td { border: 1px solid gray; padding: 8px; text-align: center; }
+        th, td.side_column_number, td.side_column_time { background-color: #f2f2f2; }
+        .side_column_number { width: 1%; }
+        .side_column_time { width: 3%; }
+        .replaced { background-color: #fae4d7; }
         .discipline, .classroom { font-weight: bold; }
+        .event { background-color: #fa8072; }
+        .iga { background-color: #cfffd9 }
+        .practice { background-color: #c0d5fa; }
+        .example { border: 1px solid gray; width: 30px; height: 1px;}
       </style>
     </head>
     <body>
@@ -49,8 +54,8 @@ module ImageGenerator
       <table id='main_table'>
         <thead>
           <tr>
-            <th>№</th>
-            <th>Время</th>
+            <th class="side_column_number">№</th>
+            <th class="side_column_time">Время</th>
             #{schedule.first[:days].map { |d|
               "<th>#{d[:date]}<br>#{d[:weekday]}<br>#{d[:week_type]}</th>"
             }.join"\n"}
@@ -60,6 +65,15 @@ module ImageGenerator
           #{generate_table_body schedule}
         </tbody>
       </table>
+      <p>
+        <b>Условные обозначения:</b>
+        <span class='example replaced'>замена</span>;
+        <!-- <span class='example session'>сессия</span>; -->
+        <span class='example event'>праздничный день</span>;
+        <span class='example practice'>практика</span>;
+        <span class='example iga'>ИГА</span>;
+        <!-- <span class='example holiday'>каникулы</span>; -->
+      </p>
       <p>Сгенерировано в #{Time.now}</p>
     </body>
     </html>
@@ -70,8 +84,8 @@ module ImageGenerator
     schedule.map do |row|
       <<~HTML
       <tr>
-        <td><b>#{row[:pair_number]}</b></td>
-        <td><b>#{row[:time_range]}</b></td>
+        <td class="side_column_number"><b>#{row[:pair_number]}</b></td>
+        <td class="side_column_time">#{row[:time_range].gsub('-', '<hr>')}</td>
         #{generate_row row}
       </tr>
       HTML
@@ -82,18 +96,18 @@ module ImageGenerator
     row[:days].map do |day|
       css_class = "#{day[:replaced] ? ' replaced' : ''} #{day[:type].to_s}"
       case day[:type]
+      when :event, :iga, :practice
+        "<td class='#{css_class}'><span>#{day[:content]}</span><br></td>"
       when :subject
         <<~HTML
         <td class='#{css_class}'>
-          <span class='discipline'>#{day[:subject][:discipline]}</span><br>
-          <span class='teacher'>#{day[:subject][:teacher]}</span><br>
-          <span class='classroom'>#{day[:subject][:classroom]}</span><br>
+        <span class='discipline'>#{day[:content][:discipline]}</span><br>
+        <span class='teacher'>#{day[:content][:teacher]}</span><br>
+        <span class='classroom'>#{day[:content][:classroom]}</span><br>
         </td>
         HTML
-      when :event
-        "<td class='#{css_class}'> <span>#{day[:event]}</span><br> </td>"
-      when :empty
-        "<td class='#{css_class}'> <span>#{day[:replaced] ? 'Снято' : ''}</span><br> </td>"
+      else # when :empty
+        "<td class='#{css_class}'><span>#{day[:replaced] ? 'Снято' : ''}</span><br></td>"
       end
     end.join"\n"
   end
