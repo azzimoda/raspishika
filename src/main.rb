@@ -23,7 +23,7 @@ class RaspishikaBot
   DEFAULT_KEYBOARD = [
     ["Оставшиеся пары"],
     ["Сегодня/Завтра", "Неделя"],
-    ["Выбрать другую группу", "Задать таймер"],
+    ["Выбрать другую группу", "Насторить рассылку"],
   ]
   if ENV["DEBUG_CM"]
     DEFAULT_KEYBOARD.push(
@@ -59,6 +59,7 @@ class RaspishikaBot
     @logger = Logger.new($stderr, level: Logger::DEBUG)
     @parser = ScheduleParser.new(logger: @logger)
     @token = ENV['TELEGRAM_BOT_TOKEN']
+    @run = true
 
     ImageGenerator.logger = Cache.logger = User.logger = @logger
     User.restore
@@ -76,8 +77,7 @@ class RaspishikaBot
           {command: 'start', description: 'Запуск бота'},
           {command: 'help', description: 'Помощь'},
           {command: 'set_group', description: 'Выбрать группу'},
-          {command: 'set_timer', description: 'Задать таймер'},
-          {command: 'off_timer', description: 'Выключить таймер'},
+          {command: 'configure_sending', description: 'Насторить рассылку'},
           {command: 'cancel', description: 'Отменить действие'},
           {command: 'left', description: 'Оставшиеся пары'},
           {command: 'today_tomorrow', description: 'Расписание на сегодня и завтра'},
@@ -86,6 +86,8 @@ class RaspishikaBot
       )
 
       sleep 1 until @parser.ready?
+
+      @sending_thread = Thread.new(self, &:sending_loop)
 
       begin
         logger.info "Running bot listen loop..."
@@ -104,8 +106,37 @@ class RaspishikaBot
     puts
     logger.warn "Keyboard interruption"
   ensure
+    @run = false
+    @sending_thread.join
     User.backup
     @parser.stop_browser_thread
+  end
+
+  def sending_loop
+    logger.info "Starting sending loop..."
+    last_sending_time = Time.now - 10*60
+
+    while @run
+      current_time = Time.now
+
+      users_to_send = User.users.values.select do
+        it.daily_sending && Time.parse(it.daily_sending).between?(last_sending_time, current_time)
+      end
+      # logger.debug "There are #{users_to_send.size} users to send to"
+
+      users_to_send.each { send_week_schedule(nil, it) }
+      if users_to_send.any?
+        logger.debug "Daily sending for #{users_to_send.size} users took #{Time.now - current_time} seconds"
+      end
+
+      last_sending_time = current_time
+
+      60.times do
+        break unless @run
+        sleep 1
+      end
+      # Even if work takes 1 minute, then it waits 1 minute, (1 + 1 = 2 minutes skipped (7:00 => 7:02)) it'll process users and with 7:01, and with 7:02.
+    end
   end
 
   private
@@ -125,7 +156,20 @@ class RaspishikaBot
       when '/week', 'неделя' then send_week_schedule message, user
       when '/today_tomorrow', 'сегодня/завтра' then send_tt_schedule message, user
       when '/left', 'оставшиеся пары' then send_left_schedule message, user
-      when '/set_timer', 'задать таймер' then configure_timer message, user
+      when '/configure_sending', 'насторить рассылку' then configure_sending message, user
+      when 'ежедневная рассылка' then configure_daily_sending message, user
+      when %r(^\d{1,2}:\d{2}$)
+        if (message.text =~ %r(^\d{1,2}:\d{2}$) && Time.parse(message.text) rescue false)
+          set_daily_sending message, user
+        else
+          bot.api.send_message(
+            chat_id: message.chat.id,
+            text: "Неправильный формат времени. Попробуйте ещё раз",
+          )
+        end
+      when 'отключить' then disable_daily_sending message, user
+      when 'вкл. рассылку перед парами' then enable_pair_sending message, user
+      when 'выкл. рассылку перед парами' then disable_pair_sending message, user
       when '/cancel', 'отмена' then cancel_action message, user
       when %r(^/debug\s+\w+$) then debug_command message, user
       else
@@ -170,7 +214,7 @@ class RaspishikaBot
 
       keyboard = [["Отмена"]] + departments.keys.each_slice(2).to_a
       bot.api.send_message(
-        chat_id: message.chat.id,
+        chat_id: user.id,
         text: "Выбери отделение",
         reply_markup: {
           keyboard: keyboard,
@@ -180,7 +224,7 @@ class RaspishikaBot
       )
     else
       bot.api.send_message(
-        chat_id: message.chat.id,
+        chat_id: user.id,
         text: "Не удалось загрузить отделения",
         reply_markup: DEFAULT_REPLY_MARKUP
       )
@@ -237,7 +281,7 @@ class RaspishikaBot
     sent_message = bot.api.send_message(
       chat_id: message.chat.id,
       text: "Сверяю данные...",
-      reply_markup: { remove_keyboard: true }.to_json
+      reply_markup: {remove_keyboard: true}.to_json
     )
 
     if (group_info = user.groups[message.text])
@@ -274,28 +318,28 @@ class RaspishikaBot
     user.state = :default
   end
 
-  def send_week_schedule(message, user)
+  def send_week_schedule(_message, user)
     # TODO: Add loading message like in `#select_group`.
     unless user.department && user.group
-      bot.api.send_message(chat_id: message.chat.id, text: "Группа не выбрана")
-      return configure_group(message, user)
+      bot.api.send_message(chat_id: user.id, text: "Группа не выбрана")
+      return configure_group(_message, user)
     end
 
     Cache.fetch(:"schedule_#{user.department}_#{user.group}") do
       parser.fetch_schedule user.group_info
     end
     bot.api.send_photo(
-      chat_id: message.chat.id,
+      chat_id: user.id,
       photo: Faraday::UploadIO.new("data/cache/#{user.department}_#{user.group}.png", 'image/png'),
       reply_markup: DEFAULT_REPLY_MARKUP
     )
   end
 
-  def send_tt_schedule(message, user)
+  def send_tt_schedule(_message, user)
     # TODO: Add loading message like in `#select_group`.
     unless user.department && user.group
-      bot.api.send_message(chat_id: message.chat.id, text: "Группа не выбрана")
-      return configure_group(message, user)
+      bot.api.send_message(chat_id: user.id, text: "Группа не выбрана")
+      return configure_group(_message, user)
     end
 
     schedule = Cache.fetch(:"schedule_#{user.department}_#{user.group}") do
@@ -303,7 +347,7 @@ class RaspishikaBot
     end
     text = Schedule.from_raw(schedule).days(0, 2).format
     bot.api.send_message(
-      chat_id: message.chat.id,
+      chat_id: user.id,
       text:,
       parse_mode: 'Markdown',
       reply_markup: DEFAULT_REPLY_MARKUP
@@ -330,14 +374,70 @@ class RaspishikaBot
     )
   end
 
-  def configure_timer(message, user)
+  def configure_sending(message, user)
+    keyboard = [
+      ["Отмена"],
+      ["Ежедневная рассылка", "#{user.pair_sending ? 'Выкл.' : 'Вкл.'} рассылку перед парами"]
+    ]
     bot.api.send_message(
       chat_id: message.chat.id,
-      text: "Таймер не реализован",
+      text: "Что настроить?",
+      reply_markup: {keyboard:, resize_keyboard: true, one_time_keyboard: true}.to_json
+    )
+    user.state = :select_senging_type
+  end
+
+  def configure_daily_sending(message, user)
+    current_configuration = user.daily_sending ? " (сейчас: `#{user.daily_sending}`)" : ""
+    bot.api.send_message(
+      chat_id: message.chat.id,
+      text: "Выберите время для ежедневной рассылки#{current_configuration}\nНапример: `7:00`",
+      parse_mode: 'Markdown',
+      reply_markup: {keyboard: [["Отмена"]], resize_keyboard: true, one_time_keyboard: true}.to_json
+    )
+    user.state = :configure_daily_sending
+  end
+
+  def set_daily_sending(message, user)
+    fomratted_time = Time.parse(message.text).strftime('%H:%M')
+    user.daily_sending = fomratted_time
+    user.state = :default
+    bot.api.send_message(
+      chat_id: message.chat.id,
+      text: "Ежедневная рассылка настроена на `#{fomratted_time}`",
+      parse_mode: 'Markdown',
       reply_markup: DEFAULT_REPLY_MARKUP
     )
-    # TODO: Implement the timer
-    # User can have 2 timers: once per day and before each pair. Both can be on/off separately.
+  end
+
+  def disable_daily_sending(message, user)
+    user.daily_sending = nil
+    user.state = :default
+    bot.api.send_message(
+      chat_id: message.chat.id,
+      text: "Ежедневная рассылка отключена",
+      reply_markup: DEFAULT_REPLY_MARKUP
+    )
+  end
+
+  def enable_pair_sending(message, user)
+    user.pair_sending = true
+    user.state = :default
+    bot.api.send_message(
+      chat_id: message.chat.id,
+      text: "Рассылкка перед каждой парой включена",
+      reply_markup: DEFAULT_REPLY_MARKUP
+    )
+  end
+
+  def disable_pair_sending(message, user)
+    user.pair_sending = false
+    user.state = :default
+    bot.api.send_message(
+      chat_id: message.chat.id,
+      text: "Рассылкка перед каждой парой выключена",
+      reply_markup: DEFAULT_REPLY_MARKUP
+    )
   end
 
   def debug_command(message, user)

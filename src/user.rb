@@ -3,17 +3,20 @@ class User
 
   @users = {}
   @logger = nil
+  @mutex = Mutex.new
 
   class << self
     attr_accessor :logger, :users
 
     def [] id
-      logger&.info "New user: #{id}" unless @users[id.to_s]
-      @users[id.to_s] ||= new id.to_s
+      @mutex.synchronize do
+        logger&.info "New user: #{id}" unless @users[id.to_s]
+        @users[id.to_s] ||= new id.to_s
+      end
     end
 
     def delete user
-      @users.delete_if { |id, _| id == user.id }
+      @mutex.synchronize { @users.delete_if { |id, _| id == user.id } }
     end
 
     def backup
@@ -33,21 +36,25 @@ class User
     end
   end
 
-  def initialize(id, department: nil, group: nil, group_name: nil, timer: nil)
+  def initialize(
+    id, department: nil, group: nil, group_name: nil, daily_sending: nil, pair_sending: nil,
+    last_sent_date: nil, **
+  )
     @id = id
     @state = :default
     @department = department
     @group = group
     @group_name = group_name
-    # like { type: :once, time: '18:00' } or { type: :before } or nil
-    @timer = timer
+    @daily_sending = daily_sending
+    @pair_sending = pair_sending
+    @last_sent_date = nil
     @departments = []
     @groups = {}
     @department_url = nil
     @temp_group = nil
   end
-  attr_accessor :id, :state, :group, :group_name, :timer, :departments,
-    :department, :department_url, :groups, :temp_group, :z
+  attr_accessor :id, :state, :group, :group_name, :daily_sending, :pair_sending, :last_sent_date,
+    :departments, :department, :department_url, :groups, :temp_group, :z
 
   def z?
     @z
@@ -58,7 +65,7 @@ class User
   end
 
   def to_h
-    {department:, group:, group_name:, timer:}
+    {department:, group:, group_name:, daily_sending:, pair_sending:, last_sent_date:}
   end
 
   def to_json(*)
