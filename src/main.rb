@@ -46,8 +46,7 @@ class RaspishikaBot
   - /week — Получить расписание на неделю.
   - /today_tomorrow — Получить расписание на сегодня и завтра.
   - /left — Получить информацию об оставшихся парах на сегодня.
-  - /set_timer — Задать таймер (в разработке).
-  - /off_timer — Выключить таймер (в разработке).
+  - /config_sending — Настроить рассылку.
   - /cancel — Отменить текущее действие.
 
   Для использования команд /week, /today_tomorrow, /left необходимо сначала задать группу с помощью /set_group.
@@ -135,7 +134,6 @@ class RaspishikaBot
         break unless @run
         sleep 1
       end
-      # Even if work takes 1 minute, then it waits 1 minute, (1 + 1 = 2 minutes skipped (7:00 => 7:02)) it'll process users and with 7:01, and with 7:02.
     end
   end
 
@@ -164,7 +162,7 @@ class RaspishikaBot
         else
           bot.api.send_message(
             chat_id: message.chat.id,
-            text: "Неправильный формат времени. Попробуйте ещё раз",
+            text: "Неправильный формат времени, попробуйте ещё раз",
           )
         end
       when 'отключить' then disable_daily_sending message, user
@@ -192,7 +190,7 @@ class RaspishikaBot
   def start_message(message, user)
     bot.api.send_message(
       chat_id: message.chat.id,
-      text: "Привет! Используй /set_group чтобы задать группу и кнопки ниже для других действий.",
+      text: "Привет! Используй /set_group чтобы задать группу и кнопки ниже для других действий",
       reply_markup: DEFAULT_REPLY_MARKUP
     )
   end
@@ -421,6 +419,12 @@ class RaspishikaBot
   end
 
   def enable_pair_sending(message, user)
+    bot.api.send_message(
+      chat_id: message.chat.id,
+      text: "В разработке.",
+      reply_markup: DEFAULT_REPLY_MARKUP
+    )
+    return
     user.pair_sending = true
     user.state = :default
     bot.api.send_message(
@@ -431,6 +435,12 @@ class RaspishikaBot
   end
 
   def disable_pair_sending(message, user)
+    bot.api.send_message(
+      chat_id: message.chat.id,
+      text: "В разработке.",
+      reply_markup: DEFAULT_REPLY_MARKUP
+    )
+    return
     user.pair_sending = false
     user.state = :default
     bot.api.send_message(
