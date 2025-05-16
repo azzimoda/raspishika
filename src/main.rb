@@ -6,11 +6,11 @@ require 'uri'
 require 'cgi'
 require 'timeout'
 
-require './src/cache'
-require './src/debug_commands'
-require './src/parser'
-require './src/schedule'
-require './src/user'
+require_relative 'cache'
+require_relative 'debug_commands'
+require_relative 'parser'
+require_relative 'schedule'
+require_relative 'user'
 
 if ENV['TELEGRAM_BOT_TOKEN'].nil?
   puts "FATAL: Environment variable TELEGRAM_BOT_TOKEN is nil"
@@ -110,8 +110,8 @@ class RaspishikaBot
     logger.warn "Keyboard interruption"
   ensure
     @run = false
-    @sending_thread.join
     User.backup
+    @sending_thread.join
     @parser.stop_browser_thread
   end
 
@@ -208,7 +208,6 @@ class RaspishikaBot
   end
 
   def configure_group(message, user)
-    # TODO: Add loading message like in `#select_group`.
     departments = Cache.fetch(:departments, expires_in: HOUR) { parser.fetch_departments }
     if departments.any?
       user.departments = departments.keys
@@ -234,7 +233,6 @@ class RaspishikaBot
   end
 
   def select_department(message, user)
-    # TODO: Add loading message like in `#select_group`.
     departments = Cache.fetch(:departments, expires_in: HOUR) { parser.fetch_departments }
 
     if departments.key? message.text
@@ -266,10 +264,9 @@ class RaspishikaBot
         )
       end
     else
-      user.department_url = nil
       user.departments = []
-      user.groups = {}
       user.state = :default
+
       logger.warn "Cached departments differ from fetched"
       bot.api.send_message(
         chat_id: message.chat.id,
@@ -291,17 +288,10 @@ class RaspishikaBot
       user.group = group_info[:gr]
       user.group_name = message.text
 
-      schedule = Cache.fetch(:"schedule_#{user.department}_#{user.group}") do
-        parser.fetch_schedule group_info.merge({group: message.text})
-      end
-      text = if schedule then "Теперь ты в группе #{message.text}"
-      else "Не удалось получить данные для этой группы. Попробуйте позже."
-      end
-
       bot.api.delete_message(chat_id: message.chat.id, message_id: sent_message.message_id)
       bot.api.send_message(
         chat_id: message.chat.id,
-        text: text,
+        text: "Теперь ты в группе #{message.text}",
         reply_markup: DEFAULT_REPLY_MARKUP
       )
     else
@@ -321,11 +311,26 @@ class RaspishikaBot
   end
 
   def send_week_schedule(_message, user)
-    # TODO: Add loading message like in `#select_group`.
     unless user.department && user.group
       bot.api.send_message(chat_id: user.id, text: "Группа не выбрана")
-      return configure_group(_message, user)
+      configure_group(_message, user)
     end
+
+    unless user.department_name
+      bot.api.send_message(
+        chat_id: user.id,
+        text:
+          "В связи с техническими проблемами нужно выбрать группу заново. " \
+          "Это нужно сделать один раз, больше такого не повторится."
+      )
+      configure_group(_message, user)
+    end
+
+    sent_message = bot.api.send_message(
+      chat_id: user.id,
+      text: "Загружаю расписание...",
+      reply_markup: {remove_keyboard: true}.to_json
+    )
 
     Cache.fetch(:"schedule_#{user.department}_#{user.group}") do
       parser.fetch_schedule user.group_info
@@ -335,40 +340,66 @@ class RaspishikaBot
       photo: Faraday::UploadIO.new("data/cache/#{user.department}_#{user.group}.png", 'image/png'),
       reply_markup: DEFAULT_REPLY_MARKUP
     )
+    bot.api.delete_message(chat_id: sent_message.chat.id, message_id: sent_message.message_id)
   end
 
   def send_tomorrow_schedule(_message, user)
+    unless user.department && user.group
+      bot.api.send_message(chat_id: user.id, text: "Группа не выбрана")
+      configure_group(_message, user)
+    end
+
+    unless user.department_name
+      bot.api.send_message(
+        chat_id: user.id,
+        text:
+          "В связи с техническими проблемами нужно выбрать группу заново. " \
+          "Это нужно сделать один раз, больше такого не повторится."
+      )
+      configure_group(_message, user)
+    end
+
     sent_message = bot.api.send_message(
       chat_id: user.id,
       text: "Загружаю расписание...",
       reply_markup: {remove_keyboard: true}.to_json
     )
 
-    unless user.department && user.group
-      bot.api.send_message(chat_id: user.id, text: "Группа не выбрана")
-      return configure_group(_message, user)
-    end
-
     schedule = Cache.fetch(:"schedule_#{user.department}_#{user.group}") do
       parser.fetch_schedule user.group_info
     end
     text = Schedule.from_raw(schedule).day(1).format
 
-    bot.api.delete_message(chat_id: sent_message.chat.id, message_id: sent_message.message_id)
     bot.api.send_message(
       chat_id: user.id,
       text:,
       parse_mode: 'Markdown',
       reply_markup: DEFAULT_REPLY_MARKUP
     )
+    bot.api.delete_message(chat_id: sent_message.chat.id, message_id: sent_message.message_id)
   end
 
   def send_tt_schedule(_message, user)
-    # TODO: Add loading message like in `#select_group`.
     unless user.department && user.group
       bot.api.send_message(chat_id: user.id, text: "Группа не выбрана")
-      return configure_group(_message, user)
+      configure_group(_message, user)
     end
+
+    unless user.department_name
+      bot.api.send_message(
+        chat_id: user.id,
+        text:
+          "В связи с техническими проблемами нужно выбрать группу заново. " \
+          "Это нужно сделать один раз, больше такого не повторится."
+      )
+      configure_group(_message, user)
+    end
+
+    sent_message = bot.api.send_message(
+      chat_id: user.id,
+      text: "Загружаю расписание...",
+      reply_markup: {remove_keyboard: true}.to_json
+    )
 
     schedule = Cache.fetch(:"schedule_#{user.department}_#{user.group}") do
       parser.fetch_schedule user.group_info
@@ -380,14 +411,30 @@ class RaspishikaBot
       parse_mode: 'Markdown',
       reply_markup: DEFAULT_REPLY_MARKUP
     )
+    bot.api.delete_message(chat_id: sent_message.chat.id, message_id: sent_message.message_id)
   end
 
   def send_left_schedule(message, user)
-    # TODO: Add loading message like in `#select_group`.
     unless user.department && user.group
       bot.api.send_message(chat_id: message.chat.id, text: "Группа не выбрана")
-      return configure_group(message, user)
+      configure_group(message, user)
     end
+
+    unless user.department_name
+      bot.api.send_message(
+        chat_id: user.id,
+        text:
+          "В связи с техническими проблемами нужно выбрать группу заново. " \
+          "Это нужно сделать один раз, больше такого не повторится."
+      )
+      configure_group(_message, user)
+    end
+
+    sent_message = bot.api.send_message(
+      chat_id: user.id,
+      text: "Загружаю расписание...",
+      reply_markup: {remove_keyboard: true}.to_json
+    )
 
     schedule = Cache.fetch(:"schedule_#{user.department}_#{user.group}") do
       parser.fetch_schedule user.group_info
@@ -400,9 +447,25 @@ class RaspishikaBot
       parse_mode: 'Markdown',
       reply_markup: DEFAULT_REPLY_MARKUP
     )
+    bot.api.delete_message(chat_id: sent_message.chat.id, message_id: sent_message.message_id)
   end
 
   def configure_sending(message, user)
+    unless user.department && user.group
+      bot.api.send_message(chat_id: message.chat.id, text: "Группа не выбрана")
+      configure_group(message, user)
+    end
+
+    unless user.department_name
+      bot.api.send_message(
+        chat_id: user.id,
+        text:
+          "В связи с техническими проблемами нужно выбрать группу заново. " \
+          "Это нужно сделать один раз, больше такого не повторится."
+      )
+      configure_group(_message, user)
+    end
+
     keyboard = [
       ["Отмена"],
       ["Ежедневная рассылка", "#{user.pair_sending ? 'Выкл.' : 'Вкл.'} рассылку перед парами"]
@@ -421,7 +484,7 @@ class RaspishikaBot
       chat_id: message.chat.id,
       text: "Выберите время для ежедневной рассылки#{current_configuration}\nНапример: `7:00`",
       parse_mode: 'Markdown',
-      reply_markup: {keyboard: [["Отмена"]], resize_keyboard: true, one_time_keyboard: true}.to_json
+      reply_markup: {keyboard: [["Отмена"], ["Отключить"]], resize_keyboard: true, one_time_keyboard: true}.to_json
     )
     user.state = :configure_daily_sending
   end
