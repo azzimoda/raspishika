@@ -22,7 +22,7 @@ HOUR = 60 * 60
 class RaspishikaBot
   DEFAULT_KEYBOARD = [
     ["Оставшиеся пары"],
-    ["Сегодня/Завтра", "Неделя"],
+    ["Завтра", "Неделя"],
     ["Выбрать другую группу", "Насторить рассылку"],
   ]
   if ENV["DEBUG_CM"]
@@ -44,6 +44,7 @@ class RaspishikaBot
   - /help — Показать это сообщение помощи.
   - /set_group — Выбрать или изменить группу для получения расписания. Следуйте инструкциям: сначала выберите отделение, затем группу.
   - /week — Получить расписание на неделю.
+  - /tomorrow — Получить расписание на завтра.
   - /today_tomorrow — Получить расписание на сегодня и завтра.
   - /left — Получить информацию об оставшихся парах на сегодня.
   - /config_sending — Настроить рассылку.
@@ -79,6 +80,7 @@ class RaspishikaBot
           {command: 'configure_sending', description: 'Насторить рассылку'},
           {command: 'cancel', description: 'Отменить действие'},
           {command: 'left', description: 'Оставшиеся пары'},
+          {command: 'tomorrow', description: 'Расписание на завтра'},
           {command: 'today_tomorrow', description: 'Расписание на сегодня и завтра'},
           {command: 'week', description: 'Расписание на неделю'},
         ]
@@ -121,7 +123,6 @@ class RaspishikaBot
       users_to_send = User.users.values.select do
         it.daily_sending && Time.parse(it.daily_sending).between?(last_sending_time, current_time)
       end
-      # logger.debug "There are #{users_to_send.size} users to send to"
 
       users_to_send.each { send_week_schedule(nil, it) }
       if users_to_send.any?
@@ -152,6 +153,7 @@ class RaspishikaBot
       when ->(t) { user.groups.keys.map(&:downcase).include?(t) }
         select_group message, user
       when '/week', 'неделя' then send_week_schedule message, user
+      when '/tomorrow', 'завтра' then send_tomorrow_schedule message, user
       when '/today_tomorrow', 'сегодня/завтра' then send_tt_schedule message, user
       when '/left', 'оставшиеся пары' then send_left_schedule message, user
       when '/configure_sending', 'насторить рассылку' then configure_sending message, user
@@ -329,6 +331,32 @@ class RaspishikaBot
     bot.api.send_photo(
       chat_id: user.id,
       photo: Faraday::UploadIO.new("data/cache/#{user.department}_#{user.group}.png", 'image/png'),
+      reply_markup: DEFAULT_REPLY_MARKUP
+    )
+  end
+
+  def send_tomorrow_schedule(_message, user)
+    sent_message = bot.api.send_message(
+      chat_id: user.id,
+      text: "Загружаю расписание...",
+      reply_markup: {remove_keyboard: true}.to_json
+    )
+
+    unless user.department && user.group
+      bot.api.send_message(chat_id: user.id, text: "Группа не выбрана")
+      return configure_group(_message, user)
+    end
+
+    schedule = Cache.fetch(:"schedule_#{user.department}_#{user.group}") do
+      parser.fetch_schedule user.group_info
+    end
+    text = Schedule.from_raw(schedule).day(1).format
+
+    bot.api.delete_message(chat_id: sent_message.chat.id, message_id: sent_message.message_id)
+    bot.api.send_message(
+      chat_id: user.id,
+      text:,
+      parse_mode: 'Markdown',
       reply_markup: DEFAULT_REPLY_MARKUP
     )
   end

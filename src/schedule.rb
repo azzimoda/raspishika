@@ -1,5 +1,11 @@
 require 'json'
 
+module Marshal
+  def self.deep_clone obj
+    load dump obj
+  end
+end
+
 class Schedule
   WEEKDAY_SHORTS = {
     'понедельник' => 'пн',
@@ -60,15 +66,19 @@ class Schedule
   end
 
   def deep_clone
-    Schedule.new Marshal.load Marshal.dump @data
+    Schedule.new Marshal.deep_clone @data
   end
 
   def days(*args)
-    Schedule.new Marshal.load Marshal.dump @data.slice(*args)
+    if args.size == 1 && args[0].is_a?(Integer)
+      day args[0]
+    else
+      Schedule.new Marshal.deep_clone @data.slice(*args)
+    end
   end
 
   def day n=0
-    Schedule.new [Marshal.load(Marshal.dump(@data[n]))]
+    Schedule.new [Marshal.deep_clone(@data[n])]
   end
 
   def pair n, d=0
@@ -132,8 +142,8 @@ class Schedule
             pair[:content][:teacher]
           end
           "\n*#{pair[:content][:discipline]}*\n#{teacher}"
-        when :event
-          " — #{pair[:content]}"
+        when :event, :iga, :practice
+          " — *#{pair[:content]}*"
         end
 
         "#{pair[:pair_number]} | #{pair[:time_range]}#{classroom}#{name}"
