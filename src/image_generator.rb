@@ -10,10 +10,10 @@ module ImageGenerator
     attr_accessor :logger
   end
 
-  def self.generate(page, schedule, sid:, gr:, group:, **)
+  def self.generate(page, schedule, sid:, gr:, group:, department:, **)
     logger&.info "Generating image for #{sid} #{gr} #{group}"
 
-    html = generate_html(schedule, group)
+    html = generate_html(schedule, group, department)
     file_path = File.expand_path("table_template.html", CACHE_DIR)
     File.write(file_path, html)
 
@@ -29,7 +29,7 @@ module ImageGenerator
 
   private
 
-  def self.generate_html(schedule, group)
+  def self.generate_html(schedule, group, department)
     <<~HTML
     <!DOCTYPE html>
     <html>
@@ -37,7 +37,7 @@ module ImageGenerator
       <style>
         body { font-family: Arial, sans-serif; font-size: 10px; margin: 20px; }
         table#main_table { border-collapse: collapse; table-layout: fixed; width: 100%; }
-        th, td { border: 1px solid gray; padding: 8px; text-align: center; }
+        th, td { border: 1px solid gray; padding: 4px; text-align: center; }
         th, td.side_column_number, td.side_column_time { background-color: #f2f2f2; }
         .side_column_number { width: 1%; }
         .side_column_time { width: 3%; }
@@ -46,11 +46,11 @@ module ImageGenerator
         .event { background-color: #fa8072; }
         .iga { background-color: #cfffd9 }
         .practice { background-color: #c0d5fa; }
-        .example { border: 1px solid gray; width: 30px; height: 1px;}
+        .example { border: 1px solid gray; padding: 2px 4px;}
       </style>
     </head>
     <body>
-      <h2>Расписание группы #{group}</h2>
+      <h2>Расписание группы #{group} — #{department}</h2>
       <table id='main_table'>
         <thead>
           <tr>
@@ -102,6 +102,7 @@ module ImageGenerator
         <<~HTML
         <td class='#{css_class}'>
         <span class='discipline'>#{day[:content][:discipline]}</span><br>
+        <br>
         <span class='teacher'>#{day[:content][:teacher]}</span><br>
         <span class='classroom'>#{day[:content][:classroom]}</span><br>
         </td>

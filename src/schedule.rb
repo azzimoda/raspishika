@@ -30,7 +30,7 @@ class Schedule
     private
 
     def transform schedule
-      return [] if schedule&.empty?
+      raise ArgumentError, "Schedule is empty or nil: #{schedule.inspect}" if schedule&.empty?
 
       days_count = schedule.first[:days].count
       days_schedule = Array.new(days_count) { { pairs: [] } }
@@ -118,6 +118,10 @@ class Schedule
     pair pair[:pair_number] + 1
   end
 
+  def all_empty?
+    @data.all? { it[:pairs].all? { it[:type] == :empty } }
+  end
+
   def to_json
     @data.to_json
   end
@@ -129,7 +133,7 @@ class Schedule
   def format
     @data.map do |day|
       weekday = WEEKDAY_SHORTS[day[:weekday].downcase].upcase
-      pairs = day[:pairs].map.with_index do |pair, index|
+      pairs = day[:pairs].map do |pair|
         next if pair[:type] == :empty
 
         classroom = ""

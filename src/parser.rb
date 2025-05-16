@@ -5,7 +5,7 @@ require 'cgi'
 require 'playwright' # NOTE: Playwright is synchronouse YET
 require 'timeout'
 
-require './src/image_generator'
+require_relative 'image_generator'
 
 class ScheduleParser
   TIMEOUT = 30
@@ -100,7 +100,7 @@ class ScheduleParser
       return nil
     end
 
-    base_url = "https://coworking.tyuiu.ru/shs/all_t/sh#{group_info[:z] ? 'z' : ''}.php"
+    base_url = "https://coworking.tyuiu.ru/shs/all_t/sh#{group_info[:zaochnoe] ? 'z' : ''}.php"
     url = "#{base_url}?action=group&union=0&sid=#{group_info[:sid]}&gr=#{group_info[:gr]}&year=#{Time.now.year}&vr=1"
     logger&.info "Fetching schedule from: #{url}"
 
@@ -116,7 +116,7 @@ class ScheduleParser
       )
 
       page.goto('https://mnokol.tyuiu.ru/')
-      sleep rand(2..5)
+      sleep 1
 
       page.goto(url, timeout: TIMEOUT * 1000)
       page.mouse.move(0, rand(100..300))

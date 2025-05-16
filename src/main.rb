@@ -241,8 +241,7 @@ class RaspishikaBot
       end
       if groups.any?
         user.department_url = departments[message.text]
-        user.z = message.text.downcase == 'заочное обучение'
-        user.departments = []
+        user.department_name_temp = message.text
         user.groups = groups
         user.state = :select_group
 
@@ -277,18 +276,12 @@ class RaspishikaBot
   end
 
   def select_group(message, user)
-    sent_message = bot.api.send_message(
-      chat_id: message.chat.id,
-      text: "Сверяю данные...",
-      reply_markup: {remove_keyboard: true}.to_json
-    )
-
     if (group_info = user.groups[message.text])
       user.department = group_info[:sid]
+      user.department_name = user.department_name_temp
       user.group = group_info[:gr]
       user.group_name = message.text
 
-      bot.api.delete_message(chat_id: message.chat.id, message_id: sent_message.message_id)
       bot.api.send_message(
         chat_id: message.chat.id,
         text: "Теперь ты в группе #{message.text}",
@@ -296,9 +289,8 @@ class RaspishikaBot
       )
     else
       user.department = nil
-      user.group = nil
+      user.department_name = nil
 
-      bot.api.delete_message(chat_id: message.chat.id, message_id: sent_message.message_id)
       bot.api.send_message(
         chat_id: message.chat.id,
         text: "Группа #{message.text} не найдена. Доступные группы:\n#{user.groups.keys.join(" , ")}",
@@ -368,7 +360,12 @@ class RaspishikaBot
     schedule = Cache.fetch(:"schedule_#{user.department}_#{user.group}") do
       parser.fetch_schedule user.group_info
     end
-    text = Schedule.from_raw(schedule).day(1).format
+    tomorrow_schedule = Schedule.from_raw(schedule).day(1)
+    text = if tomorrow_schedule.nil? || tomorrow_schedule.all_empty?
+      "Завтра нет пар!"
+    else
+      text = tomorrow_schedule.format
+    end
 
     bot.api.send_message(
       chat_id: user.id,
@@ -414,10 +411,10 @@ class RaspishikaBot
     bot.api.delete_message(chat_id: sent_message.chat.id, message_id: sent_message.message_id)
   end
 
-  def send_left_schedule(message, user)
+  def send_left_schedule(_message, user)
     unless user.department && user.group
-      bot.api.send_message(chat_id: message.chat.id, text: "Группа не выбрана")
-      return configure_group(message, user)
+      bot.api.send_message(chat_id: user.id, text: "Группа не выбрана")
+      return configure_group(_message, user)
     end
 
     unless user.department_name
@@ -439,10 +436,15 @@ class RaspishikaBot
     schedule = Cache.fetch(:"schedule_#{user.department}_#{user.group}") do
       parser.fetch_schedule user.group_info
     end
-    text = Schedule.from_raw(schedule).left&.format
-    text = "Сегодня больше нет пар!" if text.nil? || text.empty?
+    left_schedule = Schedule.from_raw(schedule).left
+    text = if left_schedule.nil? || left_schedule.all_empty?
+      "Сегодня больше нет пар!"
+    else
+      left_schedule.format
+    end
+
     bot.api.send_message(
-      chat_id: message.chat.id,
+      chat_id: user.id,
       text:,
       parse_mode: 'Markdown',
       reply_markup: DEFAULT_REPLY_MARKUP

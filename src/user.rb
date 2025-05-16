@@ -37,35 +37,41 @@ class User
   end
 
   def initialize(
-    id, department: nil, group: nil, group_name: nil, daily_sending: nil, pair_sending: nil,
-    last_sent_date: nil, **
+    id, department: nil, group: nil, department_name: nil, group_name: nil, daily_sending: nil,
+    pair_sending: nil, **
   )
     @id = id
     @state = :default
+
     @department = department
+    @department_name = department_name
     @group = group
     @group_name = group_name
+
     @daily_sending = daily_sending
     @pair_sending = pair_sending
-    @last_sent_date = nil
+
     @departments = []
     @groups = {}
+    @department_name_temp = nil
     @department_url = nil
-    @temp_group = nil
   end
-  attr_accessor :id, :state, :group, :group_name, :daily_sending, :pair_sending, :last_sent_date,
-    :departments, :department, :department_url, :groups, :temp_group, :z
+  attr_accessor :id, :state,
+    :group, :group_name, :department, :department_name,
+    :daily_sending, :pair_sending,
+    :departments, :groups, :department_name_temp, :department_url
 
-  def z?
-    @z
+  def zaochnoe?
+    @department_name == 'заочное обучение'
   end
 
   def group_info
-    {sid: @department, gr: @group, group: @group_name, z:}
+    {sid: @department, gr: @group, group: @group_name, department: @department_name,
+     zaochnoe: zaochnoe?}
   end
 
   def to_h
-    {department:, group:, group_name:, daily_sending:, pair_sending:, last_sent_date:}
+    {department:, department_name:, group:, group_name:, daily_sending:, pair_sending:}
   end
 
   def to_json(*)
