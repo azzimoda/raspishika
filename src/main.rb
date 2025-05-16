@@ -452,10 +452,10 @@ class RaspishikaBot
     bot.api.delete_message(chat_id: sent_message.chat.id, message_id: sent_message.message_id)
   end
 
-  def configure_sending(message, user)
+  def configure_sending(_message, user)
     unless user.department && user.group
-      bot.api.send_message(chat_id: message.chat.id, text: "Группа не выбрана")
-      return configure_group(message, user)
+      bot.api.send_message(chat_id: user.id, text: "Группа не выбрана")
+      return configure_group(_message, user)
     end
 
     unless user.department_name
@@ -473,7 +473,7 @@ class RaspishikaBot
       ["Ежедневная рассылка", "#{user.pair_sending ? 'Выкл.' : 'Вкл.'} рассылку перед парами"]
     ]
     bot.api.send_message(
-      chat_id: message.chat.id,
+      chat_id: user.id,
       text: "Что настроить?",
       reply_markup: {keyboard:, resize_keyboard: true, one_time_keyboard: true}.to_json
     )
