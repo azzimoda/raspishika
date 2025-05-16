@@ -313,7 +313,7 @@ class RaspishikaBot
   def send_week_schedule(_message, user)
     unless user.department && user.group
       bot.api.send_message(chat_id: user.id, text: "Группа не выбрана")
-      configure_group(_message, user)
+      return configure_group(_message, user)
     end
 
     unless user.department_name
@@ -323,7 +323,7 @@ class RaspishikaBot
           "В связи с техническими проблемами нужно выбрать группу заново. " \
           "Это нужно сделать один раз, больше такого не повторится."
       )
-      configure_group(_message, user)
+      return configure_group(_message, user)
     end
 
     sent_message = bot.api.send_message(
@@ -346,7 +346,7 @@ class RaspishikaBot
   def send_tomorrow_schedule(_message, user)
     unless user.department && user.group
       bot.api.send_message(chat_id: user.id, text: "Группа не выбрана")
-      configure_group(_message, user)
+      return configure_group(_message, user)
     end
 
     unless user.department_name
@@ -356,7 +356,7 @@ class RaspishikaBot
           "В связи с техническими проблемами нужно выбрать группу заново. " \
           "Это нужно сделать один раз, больше такого не повторится."
       )
-      configure_group(_message, user)
+      return configure_group(_message, user)
     end
 
     sent_message = bot.api.send_message(
@@ -382,7 +382,7 @@ class RaspishikaBot
   def send_tt_schedule(_message, user)
     unless user.department && user.group
       bot.api.send_message(chat_id: user.id, text: "Группа не выбрана")
-      configure_group(_message, user)
+      return configure_group(_message, user)
     end
 
     unless user.department_name
@@ -392,7 +392,7 @@ class RaspishikaBot
           "В связи с техническими проблемами нужно выбрать группу заново. " \
           "Это нужно сделать один раз, больше такого не повторится."
       )
-      configure_group(_message, user)
+      return configure_group(_message, user)
     end
 
     sent_message = bot.api.send_message(
@@ -417,7 +417,7 @@ class RaspishikaBot
   def send_left_schedule(message, user)
     unless user.department && user.group
       bot.api.send_message(chat_id: message.chat.id, text: "Группа не выбрана")
-      configure_group(message, user)
+      return configure_group(message, user)
     end
 
     unless user.department_name
@@ -427,7 +427,7 @@ class RaspishikaBot
           "В связи с техническими проблемами нужно выбрать группу заново. " \
           "Это нужно сделать один раз, больше такого не повторится."
       )
-      configure_group(_message, user)
+      return configure_group(_message, user)
     end
 
     sent_message = bot.api.send_message(
@@ -453,7 +453,7 @@ class RaspishikaBot
   def configure_sending(message, user)
     unless user.department && user.group
       bot.api.send_message(chat_id: message.chat.id, text: "Группа не выбрана")
-      configure_group(message, user)
+      return configure_group(message, user)
     end
 
     unless user.department_name
@@ -463,7 +463,7 @@ class RaspishikaBot
           "В связи с техническими проблемами нужно выбрать группу заново. " \
           "Это нужно сделать один раз, больше такого не повторится."
       )
-      configure_group(_message, user)
+      return configure_group(_message, user)
     end
 
     keyboard = [
