@@ -1,10 +1,4 @@
-require 'logger'
 require 'telegram/bot'
-require 'nokogiri'
-require 'open-uri'
-require 'uri'
-require 'cgi'
-require 'timeout'
 
 require_relative 'cache'
 require_relative 'debug_commands'
@@ -12,6 +6,7 @@ require_relative 'parser'
 require_relative 'schedule'
 require_relative 'user'
 require_relative 'dev_bot'
+require_relative 'logger'
 
 if ENV['TELEGRAM_BOT_TOKEN'].nil?
   puts "FATAL: Environment variable TELEGRAM_BOT_TOKEN is nil"
@@ -24,7 +19,7 @@ class RaspishikaBot
   DEFAULT_KEYBOARD = [
     ["Оставшиеся пары"],
     ["Завтра", "Неделя"],
-    ["Выбрать другую группу", "Насторить рассылку"],
+    ["Выбрать другую группу", "Настроить рассылку"],
   ]
   if ENV["DEBUG_CM"]
     DEFAULT_KEYBOARD.push(
@@ -59,7 +54,7 @@ class RaspishikaBot
   MARKDOWN
 
   def initialize
-    @logger = Logger.new($stderr, level: Logger::DEBUG)
+    @logger = MyLogger.new # Logger.new($stderr, level: Logger::DEBUG)
     @parser = ScheduleParser.new(logger: @logger)
     @token = ENV['TELEGRAM_BOT_TOKEN']
     @run = true
@@ -104,13 +99,13 @@ class RaspishikaBot
       rescue Telegram::Bot::Exceptions::ResponseError => e
         msg = "Telegram API error: #{e.detailed_message}; retrying..."
         logger.error msg
-        report msg
+        report(msg, backtrace: e.backtrace.join("\n"))
         sleep 5
         retry
       rescue => e
         msg = "Unhandled error in `bot.listen`: #{e.detailed_message}; retrying..."
         logger.error msg
-        report msg
+        report(msg, backtrace: e.backtrace.join("\n"))
         sleep 5
         retry
       end
@@ -138,7 +133,15 @@ class RaspishikaBot
         it.daily_sending && Time.parse(it.daily_sending).between?(last_sending_time, current_time)
       end
 
-      users_to_send.each { send_week_schedule(nil, it) }
+      users_to_send.each do
+        send_week_schedule(nil, it)
+      rescue => e
+        msg = "Error while sending daily schedule: #{e.detailed_message}"
+        backtrace = e.backtrace.join("\n")
+        logger.error msg
+        logger.debug backtrace
+        report(msg, backtrace:)
+      end
       if users_to_send.any?
         logger.debug "Daily sending for #{users_to_send.size} users took #{Time.now - current_time} seconds"
       end
@@ -293,7 +296,7 @@ class RaspishikaBot
         reply_markup: DEFAULT_REPLY_MARKUP
       )
       logger.warn "Reached code supposed to be unreachable!"
-      msg = "User #{user.id} tried to select department #{message.text} but it doesn't exist"
+      msg = "User #{message.chat.id} (#{message.from.username}) tried to select department #{message.text} but it doesn't exist"
       logger.warn msg
       report msg
     end
@@ -321,7 +324,7 @@ class RaspishikaBot
         reply_markup: DEFAULT_REPLY_MARKUP
       )
       logger.warn "Reached code supposed to be unreachable!"
-      msg = "User #{user.id} tried to select group #{message.text} but it doesn't exist"
+      msg = "User #{message.chat.id} (#{message.from.username}) tried to select group #{message.text} but it doesn't exist"
       logger.warn msg
       report msg
     end
@@ -357,8 +360,8 @@ class RaspishikaBot
     end
 
     file_path = ImageGenerator.image_path(**user.group_info)
-    photo = Faraday::UploadIO.new(file_path, 'image/png')
-    bot.api.send_photo(chat_id: user.id, photo:, reply_markup: DEFAULT_REPLY_MARKUP)
+    make_photo = ->() { Faraday::UploadIO.new(file_path, 'image/png') }
+    bot.api.send_photo(chat_id: user.id, photo: make_photo.call, reply_markup: DEFAULT_REPLY_MARKUP)
     unless schedule
       bot.api.send_message(
         chat_id: user.id,
@@ -367,7 +370,7 @@ class RaspishikaBot
           parse_mode: 'Markdown',
         reply_markup: DEFAULT_REPLY_MARKUP
       )
-      report("Failed to fetch schedule for #{user.group_info}", photo:)
+      report("Failed to fetch schedule for #{user.group_info}", photo: make_photo.call)
     end
     bot.api.delete_message(chat_id: sent_message.chat.id, message_id: sent_message.message_id)
   end
@@ -397,7 +400,7 @@ class RaspishikaBot
     schedule = Cache.fetch(:"schedule_#{user.department}_#{user.group}") do
       parser.fetch_schedule user.group_info
     end
-    tomorrow_schedule = Schedule.from_raw(schedule).day(1)
+    tomorrow_schedule = schedule && Schedule.from_raw(schedule).day(1)
     text = if tomorrow_schedule.nil? || tomorrow_schedule.all_empty?
       "Завтра нет пар!"
     else

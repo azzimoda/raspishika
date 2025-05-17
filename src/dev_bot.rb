@@ -22,6 +22,13 @@ class RaspishikaDevBot
     logger.info "Starting statistics bot..."
     Telegram::Bot::Client.run(@token) do |bot|
       @bot = bot
+      bot.api.set_my_commands(
+        commands: [
+          {command: 'start', description: 'Start'},
+          {command: 'help', description: 'No help'},
+          {command: 'log', description: 'Get last log'},
+        ]
+      )
       bot.listen { handle_message it }
     end
   rescue Interrupt
@@ -31,7 +38,7 @@ class RaspishikaDevBot
     File.write(ADMIN_CHAT_ID_FILE, @admin_chat_id.to_s) if @admin_chat_id
   end
 
-  def report text, photo: nil, log: nil, backtrace: nil
+  def report text, photo: nil, backtrace: nil, log: nil
     return unless @token && @admin_chat_id
 
     logger.info "Sending report #{text.inspect}..."
@@ -39,7 +46,7 @@ class RaspishikaDevBot
     if log
       bot.api.send_message(
         chat_id: @admin_chat_id,
-        text: "LOGS:\n```\n#{log}\n```",
+        text: "LOGS:\n```\n#{last_log lines: log}\n```",
         parse_mode: 'Markdown'
       )
     end
@@ -59,6 +66,8 @@ class RaspishikaDevBot
     case message.text.downcase
     when '/start' then @admin_chat_id = message.chat.id
     when ->(*) { @admin_chat_id.nil? } then return
+    when %r(/log\s+(\d+)) then send_log message, lines: Regexp.last_match(1).to_i
+    when '/log' then send_log message
     when '/stats' then send_stats message
     else bot.api.send_message(chat_id: message.chat.id, text: "Huh?")
     end
@@ -66,5 +75,25 @@ class RaspishikaDevBot
 
   def send_stats message
     bot.api.send_message(chat_id: message.chat.id, text: "Nothing yet(")
+  end
+
+  def send_log message, lines: 20
+    log = last_log(lines:)
+    if log && !log.empty?
+      bot.api.send_message(
+        chat_id: message.chat.id,
+        text: "```\n#{log}\n```",
+        parse_mode: 'Markdown'
+      )
+    else
+      bot.api.send_message(chat_id: message.chat.id, text: "No log.")
+    end
+  end
+
+  def last_log lines: 20
+    File.exist?(logger.log_file) ? `tail -n #{lines} #{logger.log_file.shellescape}` : ''
+  rescue => e
+    "Failed to get last log: #{e.detailed_message}".tap { logger.error it; report it }
+    ''
   end
 end
