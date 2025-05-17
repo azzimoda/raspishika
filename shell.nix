@@ -33,6 +33,12 @@ pkgs.mkShell {
       echo "Warning: .token file not found. Set TELEGRAM_BOT_TOKEN manually."
     fi
 
+    if [ -f .token_dev ]; then
+      export DEV_BOT_TOKEN=$(cat .token_dev)
+    else
+      echo "Warning: .token_dev file not found. Set DEV_BOT_TOKEN manually."
+    fi
+
     mkdir -p data data/cache data/debug
 
     if [ ! -d "$GEM_HOME" ]; then
@@ -51,6 +57,7 @@ pkgs.mkShell {
     alias run='bundle exec ruby src/main.rb'
 
     echo TELEGRAM_BOT_TOKEN=$TELEGRAM_BOT_TOKEN
+    echo DEV_BOT_TOKEN=$DEV_BOT_TOKEN
     echo "Use 'run' to run the bot (alias of 'bundle exec ruby src/main.rb')"
   '';
 }

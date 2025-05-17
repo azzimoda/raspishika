@@ -61,13 +61,13 @@ class ScheduleParser
       name.downcase.then { it.include?('отделение') || it == 'заочное обучение' }
     end.tap { logger&.debug it }
   rescue => e
-    logger&.error "Unhandle error in `#fetch_departments`: #{e.message}"
-    {}
+    logger&.error "Unhandled error in `#fetch_departments`: #{e.detailed_message}"
+    nil
   end
 
   def fetch_groups(department_url)
     logger&.info "Fetching groups for #{department_url}"
-    return {} if department_url.nil? || department_url.empty?
+    return nil if department_url.nil? || department_url.empty?
 
     groups = {}
 
@@ -89,12 +89,12 @@ class ScheduleParser
 
     groups
   rescue => e
-    logger&.error "Unhandled error in `#fetch_groups`: #{e.message}"
-    {}
+    logger&.error "Unhandled error in `#fetch_groups`: #{e.detailed_message}"
+    nil
   end
 
   def fetch_schedule(group_info)
-    logger&.debug "Fetching schedule for group #{group_info}"
+    logger&.info "Fetching schedule for #{group_info}"
     unless group_info[:gr] && group_info[:sid]
       logger&.error "Wrong group data"
       return nil
@@ -102,7 +102,7 @@ class ScheduleParser
 
     base_url = "https://coworking.tyuiu.ru/shs/all_t/sh#{group_info[:zaochnoe] ? 'z' : ''}.php"
     url = "#{base_url}?action=group&union=0&sid=#{group_info[:sid]}&gr=#{group_info[:gr]}&year=#{Time.now.year}&vr=1"
-    logger&.info "Fetching schedule from: #{url}"
+    logger&.debug "Fetching schedule from: #{url}"
 
     html = nil
     use_browser do |browser|
@@ -122,7 +122,8 @@ class ScheduleParser
       page.mouse.move(0, rand(100..300))
       sleep 0.5
 
-      logger&.info "Waiting for table..."
+      logger&.debug "Waiting for table..."
+      html = page.content
       page.wait_for_selector('#main_table', timeout: TIMEOUT * 1000)
       html = page.content
 
@@ -130,9 +131,9 @@ class ScheduleParser
       schedule = parse_schedule_table(doc.at_css('table#main_table')) || "Расписание не найдено"
       ImageGenerator.generate(page, schedule, **group_info)
       schedule
-    rescue => e
-      logger&.error "Unhandled error in `#fetch_schedule`: #{e.message}"
-      pp e.backtrace
+    rescue Playwright::TimeoutError => e
+      logger&.error "Timeout error while parsing schedule: #{e.detailed_message}"
+      logger&.debug e.backtrace.join"\n"
       nil
     ensure
       debug_dir = File.join('data', 'debug')
@@ -148,7 +149,7 @@ class ScheduleParser
       return nil
     end
 
-    logger&.info "Parsing html table..."
+    logger&.debug "Parsing html table..."
 
     header_row = table.css('tr').first
     day_headers = header_row.css('td:nth-child(n+3)').map do |header|

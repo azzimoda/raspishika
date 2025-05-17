@@ -1,5 +1,5 @@
-require './src/user'
-require './src/cache'
+require_relative 'user'
+require_relative 'cache'
 
 module DebugCommands
   def self.user_info(bot:, user:, message:)
@@ -27,5 +27,13 @@ module DebugCommands
 
   def self.clear_cache(**)
     Cache.clear
+  end
+
+  def self.delete_department_name(user:, **)
+    user.department_name = nil
+  end
+
+  def self.raise_error(**)
+    raise "Test unhandled error"
   end
 end

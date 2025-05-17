@@ -10,10 +10,10 @@ module ImageGenerator
     attr_accessor :logger
   end
 
-  def self.generate(page, schedule, sid:, gr:, group:, department:, **)
-    logger&.info "Generating image for #{sid} #{gr} #{group}"
+  def self.generate(page, schedule, **group_info)
+    logger&.info "Generating image for #{group_info}"
 
-    html = generate_html(schedule, group, department)
+    html = generate_html(schedule, group_info[:group], group_info[:department])
     file_path = File.expand_path("table_template.html", CACHE_DIR)
     File.write(file_path, html)
 
@@ -21,10 +21,14 @@ module ImageGenerator
     page.goto "file://#{File.absolute_path(file_path)}"
     sleep 1
 
-    output_path = File.expand_path("#{sid}_#{gr}.png", CACHE_DIR)
+    output_path = image_path(**group_info)
     page.screenshot(path: output_path)
 
-    logger&.info "Screenshot saved to #{output_path}"
+    logger&.debug "Screenshot saved to #{output_path}"
+  end
+
+  def self.image_path(sid:, gr:, group:, department:, **)
+    File.expand_path("#{sid}_#{gr}_#{department}_#{group}.png", CACHE_DIR)
   end
 
   private

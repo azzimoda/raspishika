@@ -11,6 +11,7 @@ require_relative 'debug_commands'
 require_relative 'parser'
 require_relative 'schedule'
 require_relative 'user'
+require_relative 'dev_bot'
 
 if ENV['TELEGRAM_BOT_TOKEN'].nil?
   puts "FATAL: Environment variable TELEGRAM_BOT_TOKEN is nil"
@@ -62,6 +63,7 @@ class RaspishikaBot
     @parser = ScheduleParser.new(logger: @logger)
     @token = ENV['TELEGRAM_BOT_TOKEN']
     @run = true
+    @dev_bot = RaspishikaDevBot.new logger: @logger
 
     ImageGenerator.logger = Cache.logger = User.logger = @logger
     User.restore
@@ -69,6 +71,8 @@ class RaspishikaBot
   attr_accessor :bot, :logger, :parser
 
   def run
+    @dev_bot_thread = Thread.new(@dev_bot, &:run)
+
     logger.info "Starting bot..."
     @parser.initialize_browser_thread
 
@@ -90,17 +94,23 @@ class RaspishikaBot
 
       sleep 1 until @parser.ready?
 
+      report "Bot started."
+
       @sending_thread = Thread.new(self, &:sending_loop)
 
       begin
-        logger.info "Running bot listen loop..."
+        logger.info "Starting bot listen loop..."
         bot.listen { |message| handle_message message }
       rescue Telegram::Bot::Exceptions::ResponseError => e
-        logger.error "Telegram API error: #{e.detailed_message}"
+        msg = "Telegram API error: #{e.detailed_message}; retrying..."
+        logger.error msg
+        report msg
         sleep 5
         retry
       rescue => e
-        logger.error "Unhandled error on `bot.listen`: #{e.detailed_message}"
+        msg = "Unhandled error in `bot.listen`: #{e.detailed_message}; retrying..."
+        logger.error msg
+        report msg
         sleep 5
         retry
       end
@@ -109,8 +119,10 @@ class RaspishikaBot
     puts
     logger.warn "Keyboard interruption"
   ensure
+    report "Bot stopped."
     @run = false
     User.backup
+    @dev_bot_thread.kill
     @sending_thread.join
     @parser.stop_browser_thread
   end
@@ -141,6 +153,10 @@ class RaspishikaBot
   end
 
   private
+
+  def report(*args, **kwargs)
+    @dev_bot.report(*args, **kwargs)
+  end
 
   def handle_message message
     logger.debug "Received: #{message.text} from #{message.chat.id} (#{message.from.username})"
@@ -181,13 +197,17 @@ class RaspishikaBot
         )
       end
     rescue => e
-      logger.error "Unhandled error in `#handle_message`: #{e.message}\n#{e.backtrace.join("\n")}"
+      msg =
+        "Unhandled error in `#handle_message`: #{e.detailed_message}\n" \
+        "\tFrom #{message.chat.id} (#{message.from.username}); message #{message.text.inspect}"
+      logger.error msg
+      logger.debug e.backtrace.join"\n"
+      report(msg, backtrace: e.backtrace.join("\n"), log: nil)
       bot.api.send_message(
         chat_id: message.chat.id,
         text: "Произошла ошибка. Попробуйте позже.",
         reply_markup: DEFAULT_REPLY_MARKUP
       )
-      # TODO: report_error_to_developer(e)
     end
   end
 
@@ -209,7 +229,7 @@ class RaspishikaBot
 
   def configure_group(message, user)
     departments = Cache.fetch(:departments, expires_in: HOUR) { parser.fetch_departments }
-    if departments.any?
+    if departments&.any?
       user.departments = departments.keys
       user.state = :select_department
 
@@ -235,11 +255,11 @@ class RaspishikaBot
   def select_department(message, user)
     departments = Cache.fetch(:departments, expires_in: HOUR) { parser.fetch_departments }
 
-    if departments.key? message.text
+    if departments&.key? message.text
       groups = Cache.fetch(:"groups_#{message.text.downcase}", expires_in: HOUR) do
         parser.fetch_groups departments[message.text]
       end
-      if groups.any?
+      if groups&.any?
         user.department_url = departments[message.text]
         user.department_name_temp = message.text
         user.groups = groups
@@ -272,6 +292,10 @@ class RaspishikaBot
         text: "Не удалось загрузить отделение",
         reply_markup: DEFAULT_REPLY_MARKUP
       )
+      logger.warn "Reached code supposed to be unreachable!"
+      msg = "User #{user.id} tried to select department #{message.text} but it doesn't exist"
+      logger.warn msg
+      report msg
     end
   end
 
@@ -296,6 +320,10 @@ class RaspishikaBot
         text: "Группа #{message.text} не найдена. Доступные группы:\n#{user.groups.keys.join(" , ")}",
         reply_markup: DEFAULT_REPLY_MARKUP
       )
+      logger.warn "Reached code supposed to be unreachable!"
+      msg = "User #{user.id} tried to select group #{message.text} but it doesn't exist"
+      logger.warn msg
+      report msg
     end
 
     user.groups = {}
@@ -324,14 +352,23 @@ class RaspishikaBot
       reply_markup: {remove_keyboard: true}.to_json
     )
 
-    Cache.fetch(:"schedule_#{user.department}_#{user.group}") do
+    schedule = Cache.fetch(:"schedule_#{user.department}_#{user.group}") do
       parser.fetch_schedule user.group_info
     end
-    bot.api.send_photo(
-      chat_id: user.id,
-      photo: Faraday::UploadIO.new("data/cache/#{user.department}_#{user.group}.png", 'image/png'),
-      reply_markup: DEFAULT_REPLY_MARKUP
-    )
+
+    file_path = ImageGenerator.image_path(**user.group_info)
+    photo = Faraday::UploadIO.new(file_path, 'image/png')
+    bot.api.send_photo(chat_id: user.id, photo:, reply_markup: DEFAULT_REPLY_MARKUP)
+    unless schedule
+      bot.api.send_message(
+        chat_id: user.id,
+        text:
+          "Не удалось обновить расписание, *картинка может быть не актуальной!* Попробуйте позже.",
+          parse_mode: 'Markdown',
+        reply_markup: DEFAULT_REPLY_MARKUP
+      )
+      report("Failed to fetch schedule for #{user.group_info}", photo:)
+    end
     bot.api.delete_message(chat_id: sent_message.chat.id, message_id: sent_message.message_id)
   end
 
@@ -436,7 +473,7 @@ class RaspishikaBot
     schedule = Cache.fetch(:"schedule_#{user.department}_#{user.group}") do
       parser.fetch_schedule user.group_info
     end
-    left_schedule = Schedule.from_raw(schedule).left
+    left_schedule = schedule && Schedule.from_raw(schedule).left
     text = if left_schedule.nil? || left_schedule.all_empty?
       "Сегодня больше нет пар!"
     else
