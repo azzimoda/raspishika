@@ -1,4 +1,5 @@
 require 'telegram/bot'
+require 'date'
 
 require_relative 'cache'
 require_relative 'debug_commands'
@@ -397,7 +398,9 @@ class RaspishikaBot
     schedule = Cache.fetch(:"schedule_#{user.department}_#{user.group}") do
       parser.fetch_schedule user.group_info
     end
-    tomorrow_schedule = schedule && Schedule.from_raw(schedule).day(1)
+
+    day_index = Date.today.sunday? ? 0 : 1
+    tomorrow_schedule = schedule && Schedule.from_raw(schedule).day(day_index)
     text = if tomorrow_schedule.nil? || tomorrow_schedule.all_empty?
       "Завтра нет пар!"
     else
@@ -427,6 +430,14 @@ class RaspishikaBot
           "Это нужно сделать один раз, больше такого не повторится."
       )
       return configure_group(_message, user)
+    end
+
+    if Date.today.sunday?
+      bot.api.send_message(
+        chat_id: user.id,
+        text: "Сегодня воскресенье, отдыхай!",
+        reply_markup: DEFAULT_REPLY_MARKUP)
+      return
     end
 
     sent_message = bot.api.send_message(
