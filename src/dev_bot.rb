@@ -10,10 +10,12 @@ class RaspishikaDevBot
     @logger = logger || Logger.new($stderr, level: Logger::ERROR)
     @token = ENV['DEV_BOT_TOKEN']
     @admin_chat_id = File.read(ADMIN_CHAT_ID_FILE).chomp.to_i rescue nil
+    @run = ENV['DEV_BOT'] ? ENV['DEV_BOT'] == 'true' : true
   end
   attr_accessor :logger, :bot
 
   def run
+    return unless @run
     unless @token
       logger.warn "Token for statistics bot is not set! It won't run."
       return
@@ -39,7 +41,7 @@ class RaspishikaDevBot
   end
 
   def report text, photo: nil, backtrace: nil, log: nil
-    return unless @token && @admin_chat_id
+    return unless @token && @admin_chat_id && @run
 
     logger.info "Sending report #{text.inspect}..."
     bot.api.send_photo(chat_id: @admin_chat_id, photo:) if photo

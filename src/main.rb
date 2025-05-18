@@ -41,7 +41,6 @@ class RaspishikaBot
   - /set_group — Выбрать или изменить группу для получения расписания. Следуйте инструкциям: сначала выберите отделение, затем группу.
   - /week — Получить расписание на неделю.
   - /tomorrow — Получить расписание на завтра.
-  - /today_tomorrow — Получить расписание на сегодня и завтра.
   - /left — Получить информацию об оставшихся парах на сегодня.
   - /config_sending — Настроить рассылку.
   - /cancel — Отменить текущее действие.
@@ -82,7 +81,6 @@ class RaspishikaBot
           {command: 'cancel', description: 'Отменить действие'},
           {command: 'left', description: 'Оставшиеся пары'},
           {command: 'tomorrow', description: 'Расписание на завтра'},
-          {command: 'today_tomorrow', description: 'Расписание на сегодня и завтра'},
           {command: 'week', description: 'Расписание на неделю'},
         ]
       )
@@ -175,7 +173,6 @@ class RaspishikaBot
         select_group message, user
       when '/week', 'неделя' then send_week_schedule message, user
       when '/tomorrow', 'завтра' then send_tomorrow_schedule message, user
-      when '/today_tomorrow', 'сегодня/завтра' then send_tt_schedule message, user
       when '/left', 'оставшиеся пары' then send_left_schedule message, user
       when '/configure_sending', 'насторить рассылку' then configure_sending message, user
       when 'ежедневная рассылка' then configure_daily_sending message, user
@@ -407,41 +404,6 @@ class RaspishikaBot
       text = tomorrow_schedule.format
     end
 
-    bot.api.send_message(
-      chat_id: user.id,
-      text:,
-      parse_mode: 'Markdown',
-      reply_markup: DEFAULT_REPLY_MARKUP
-    )
-    bot.api.delete_message(chat_id: sent_message.chat.id, message_id: sent_message.message_id)
-  end
-
-  def send_tt_schedule(_message, user)
-    unless user.department && user.group
-      bot.api.send_message(chat_id: user.id, text: "Группа не выбрана")
-      return configure_group(_message, user)
-    end
-
-    unless user.department_name
-      bot.api.send_message(
-        chat_id: user.id,
-        text:
-          "В связи с техническими проблемами нужно выбрать группу заново. " \
-          "Это нужно сделать один раз, больше такого не повторится."
-      )
-      return configure_group(_message, user)
-    end
-
-    sent_message = bot.api.send_message(
-      chat_id: user.id,
-      text: "Загружаю расписание...",
-      reply_markup: {remove_keyboard: true}.to_json
-    )
-
-    schedule = Cache.fetch(:"schedule_#{user.department}_#{user.group}") do
-      parser.fetch_schedule user.group_info
-    end
-    text = Schedule.from_raw(schedule).days(0, 2).format
     bot.api.send_message(
       chat_id: user.id,
       text:,
