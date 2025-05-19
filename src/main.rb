@@ -241,7 +241,7 @@ class RaspishikaBot
     bot.api.send_message(
       chat_id: message.chat.id,
       text: "Привет! Используй /set_group чтобы задать группу и кнопки ниже для других действий",
-      reply_markup: user.id > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
+      reply_markup: user.id.to_i > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
     )
 
     unless user.statistics[:start]
@@ -257,7 +257,7 @@ class RaspishikaBot
     bot.api.send_message(
       chat_id: message.chat.id,
       text: HELP_MESSAGE,
-      reply_markup: user.id > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
+      reply_markup: user.id.to_i > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
     )
   end
 
@@ -281,7 +281,7 @@ class RaspishikaBot
       bot.api.send_message(
         chat_id: user.id,
         text: "Не удалось загрузить отделения",
-        reply_markup: user.id > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
+        reply_markup: user.id.to_i > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
       )
     end
   end
@@ -313,7 +313,7 @@ class RaspishikaBot
         bot.api.send_message(
           chat_id: message.chat.id,
           text: "Не удалось загрузить группы для этого отделения",
-          reply_markup: user.id > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
+          reply_markup: user.id.to_i > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
         )
       end
     else
@@ -324,7 +324,7 @@ class RaspishikaBot
       bot.api.send_message(
         chat_id: message.chat.id,
         text: "Не удалось загрузить отделение",
-        reply_markup: user.id > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
+        reply_markup: user.id.to_i > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
       )
       logger.warn "Reached code supposed to be unreachable!"
       msg = "User #{message.chat.id} (#{message.from.username}) tried to select department #{message.text} but it doesn't exist"
@@ -343,7 +343,7 @@ class RaspishikaBot
       bot.api.send_message(
         chat_id: message.chat.id,
         text: "Теперь #{message.chat.id > 0 ? 'ты' : 'вы'} в группе #{message.text}",
-        reply_markup: user.id > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
+        reply_markup: user.id.to_i > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
       )
     else
       user.department = nil
@@ -352,7 +352,7 @@ class RaspishikaBot
       bot.api.send_message(
         chat_id: message.chat.id,
         text: "Группа #{message.text} не найдена. Доступные группы:\n#{user.groups.keys.join(" , ")}",
-        reply_markup: user.id > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
+        reply_markup: user.id.to_i > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
       )
       logger.warn "Reached code supposed to be unreachable!"
       msg = "User #{message.chat.id} (#{message.from.username}) tried to select group #{message.text} but it doesn't exist"
@@ -395,7 +395,7 @@ class RaspishikaBot
     bot.api.send_photo(
       chat_id: user.id,
       photo: make_photo.call,
-      reply_markup: user.id > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
+      reply_markup: user.id.to_i > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
     )
     unless schedule
       bot.api.send_message(
@@ -403,7 +403,7 @@ class RaspishikaBot
         text:
           "Не удалось обновить расписание, *картинка может быть не актуальной!* Попробуйте позже.",
           parse_mode: 'Markdown',
-        reply_markup: user.id > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
+        reply_markup: user.id.to_i > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
       )
       report("Failed to fetch schedule for #{user.group_info}", photo: make_photo.call)
     end
@@ -448,7 +448,7 @@ class RaspishikaBot
       chat_id: user.id,
       text:,
       parse_mode: 'Markdown',
-      reply_markup: user.id > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
+      reply_markup: user.id.to_i > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
     )
     bot.api.delete_message(chat_id: sent_message.chat.id, message_id: sent_message.message_id)
   end
@@ -473,7 +473,7 @@ class RaspishikaBot
       bot.api.send_message(
         chat_id: user.id,
         text: "Сегодня воскресенье, отдыхай!",
-        reply_markup: user.id > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json)
+        reply_markup: user.id.to_i > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json)
       return
     end
 
@@ -497,7 +497,7 @@ class RaspishikaBot
       chat_id: user.id,
       text:,
       parse_mode: 'Markdown',
-      reply_markup: user.id > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
+      reply_markup: user.id.to_i > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
     )
     bot.api.delete_message(chat_id: sent_message.chat.id, message_id: sent_message.message_id)
   end
@@ -549,7 +549,7 @@ class RaspishikaBot
       chat_id: message.chat.id,
       text: "Ежедневная рассылка настроена на `#{fomratted_time}`",
       parse_mode: 'Markdown',
-      reply_markup: user.id > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
+      reply_markup: user.id.to_i > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
     )
   end
 
@@ -559,7 +559,7 @@ class RaspishikaBot
     bot.api.send_message(
       chat_id: message.chat.id,
       text: "Ежедневная рассылка отключена",
-      reply_markup: user.id > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
+      reply_markup: user.id.to_i > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
     )
   end
 
@@ -567,7 +567,7 @@ class RaspishikaBot
     bot.api.send_message(
       chat_id: message.chat.id,
       text: "В разработке.",
-      reply_markup: user.id > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
+      reply_markup: user.id.to_i > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
     )
     return
     user.pair_sending = true
@@ -575,7 +575,7 @@ class RaspishikaBot
     bot.api.send_message(
       chat_id: message.chat.id,
       text: "Рассылкка перед каждой парой включена",
-      reply_markup: user.id > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
+      reply_markup: user.id.to_i > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
     )
   end
 
@@ -583,7 +583,7 @@ class RaspishikaBot
     bot.api.send_message(
       chat_id: message.chat.id,
       text: "В разработке.",
-      reply_markup: user.id > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
+      reply_markup: user.id.to_i > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
     )
     return
     user.pair_sending = false
@@ -591,7 +591,7 @@ class RaspishikaBot
     bot.api.send_message(
       chat_id: message.chat.id,
       text: "Рассылкка перед каждой парой выключена",
-      reply_markup: user.id > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
+      reply_markup: user.id.to_i > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
     )
   end
 
@@ -605,7 +605,7 @@ class RaspishikaBot
       bot.api.send_message(
         chat_id: message.chat.id,
         text: "Тест `#{debug_command_name}` не найден.\n\nДоступные тесты: #{DebugCommands.methods.join(', ')}",
-        reply_markup: user.id > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
+        reply_markup: user.id.to_i > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
       )
       return
     end
@@ -619,14 +619,14 @@ class RaspishikaBot
       bot.api.send_message(
         chat_id: message.chat.id,
         text: "Нечего отменять",
-        reply_markup: user.id > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
+        reply_markup: user.id.to_i > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
       )
     else
       user.state = :default
       bot.api.send_message(
         chat_id: message.chat.id,
         text: "Действие отменено",
-        reply_markup: user.id > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
+        reply_markup: user.id.to_i > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
       )
     end
   end
