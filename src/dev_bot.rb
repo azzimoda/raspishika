@@ -31,7 +31,12 @@ class RaspishikaDevBot
           {command: 'log', description: 'Get last log'},
         ]
       )
-      bot.listen { handle_message it }
+      begin
+        bot.listen { handle_message it }
+      rescue Telegram::Bot::Exceptions::ResponseError => e
+        logger.error "Telegram bot error: #{e.detailed_message}"
+        retry
+      end
     end
   rescue Interrupt
     puts
@@ -73,6 +78,10 @@ class RaspishikaDevBot
     when '/stats' then send_stats message
     else bot.api.send_message(chat_id: message.chat.id, text: "Huh?")
     end
+  rescue => e
+    bot.api.send_message(
+      chat_id: @admin_chat_id, text: "Unlandled error in `#handle_message`: #{e.detailed_message}"
+    )
   end
 
   def send_stats message
