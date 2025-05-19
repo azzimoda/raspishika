@@ -39,17 +39,20 @@ module ImageGenerator
     <html>
     <head>
       <style>
-        body { font-family: Arial, sans-serif; font-size: 10px; margin: 20px; }
+        body { font-family: Arial, sans-serif; font-size: 12px; margin: 20px; }
         table#main_table { border-collapse: collapse; table-layout: fixed; width: 100%; }
         th, td { border: 1px solid gray; padding: 4px; text-align: center; }
         th, td.side_column_number, td.side_column_time { background-color: #f2f2f2; }
         .side_column_number { width: 1%; }
         .side_column_time { width: 3%; }
         .replaced { background-color: #fae4d7; }
-        .discipline, .classroom { font-weight: bold; }
+        .title, .discipline, .classroom { font-weight: bold; }
         .event { background-color: #fa8072; }
         .iga { background-color: #cfffd9 }
         .practice { background-color: #c0d5fa; }
+        .exam { background-color: #f5d0d0; }
+        .consultation { background-color: #c9dec3; }
+        .session { background-color: #fdffe0 }
         .example { border: 1px solid gray; padding: 2px 4px;}
       </style>
     </head>
@@ -72,10 +75,12 @@ module ImageGenerator
       <p>
         <b>Условные обозначения:</b>
         <span class='example replaced'>замена</span>;
-        <!-- <span class='example session'>сессия</span>; -->
+        <span class='example session'>сессия</span>;
         <span class='example event'>праздничный день</span>;
         <span class='example practice'>практика</span>;
         <span class='example iga'>ИГА</span>;
+        <span class='example exam'>экзамен/зачёт</span>;
+        <span class='example consultation'>консультация</span>;
         <!-- <span class='example holiday'>каникулы</span>; -->
       </p>
       <p>Сгенерировано в #{Time.now}</p>
@@ -100,8 +105,19 @@ module ImageGenerator
     row[:days].map do |day|
       css_class = "#{day[:replaced] ? ' replaced' : ''} #{day[:type].to_s}"
       case day[:type]
-      when :event, :iga, :practice
+      when :event, :iga, :practice, :session
         "<td class='#{css_class}'><span>#{day[:content]}</span><br></td>"
+      when :exam, :consultation
+        <<~HTML
+        <td class='#{css_class}'>
+        <span class='title'>#{day[:title]}</span><br>
+        <br>
+        <span class='discipline'>#{day[:content][:discipline]}</span><br>
+        <br>
+        <span class='teacher'>#{day[:content][:teacher]}</span><br>
+        <span class='classroom'>#{day[:content][:classroom]}</span><br>
+        </td>
+        HTML
       when :subject
         <<~HTML
         <td class='#{css_class}'>

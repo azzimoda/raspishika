@@ -129,6 +129,10 @@ class ScheduleParser
 
       doc = Nokogiri::HTML(html)
       schedule = parse_schedule_table(doc.at_css('table#main_table')) || "Расписание не найдено"
+      unless schedule
+        logger&.error "Failed to parse schedule."
+        return nil
+      end
       ImageGenerator.generate(page, schedule, **group_info)
       schedule
     rescue Playwright::TimeoutError => e
@@ -162,19 +166,27 @@ class ScheduleParser
     end
 
     schedule = []
-    table.css('tr:not(:first-child)').each do |row|
+    table.css('tr.para_num:not(:first-child)').each do |row|
       next if row.css('th').any?
 
       time_cell = row.at_css('td:first-child')
       next unless time_cell
 
       pair_number = time_cell.text.strip
-      time_range = row.at_css('td:nth-child(2)').text.strip
+      time_range = row.at_css('td:nth-child(2)')
+      if time_range.nil?
+        logger&.error "Failed to parse time range."
+        return nil
+      end
+      time_range = time_range.text.strip
+      # logger&.debug "Time range: #{time_range}"
 
       time_slot = {pair_number:, time_range:, days: []}
       row.css('td:nth-child(n+3)').each_with_index do |day_cell, day_index|
         day_info = day_headers[day_index] || {}
         day_info[:replaced] = day_cell.css('table.zamena').any?
+        day_info[:exam] = day_cell.css('table.zachet').any?
+        day_info[:consultation] = day_cell.css('table.consultation').any?
         time_slot[:days] << parse_day_entry(day_cell, day_info)
       end
       schedule << time_slot
@@ -198,6 +210,20 @@ class ScheduleParser
     when day_cell['class']&.include?('head_urok_praktik')
       # Practice # TODO: Check formatting, maybe it's like a subject
       {type: :practice, content: day_cell.text.strip}
+    when day_cell['class']&.include?('head_urok_session')
+      {type: :session, content: day_cell.text.strip}
+    when day_info[:exam]
+      {type: :exam, title: day_cell.at_css('.head_ekz').text.strip, content: {
+        discipline: day_cell.at_css('.disc')&.text&.strip,
+        teacher: day_cell.at_css('.prep')&.text&.strip,
+        classroom: day_cell.at_css('.cab')&.text&.strip
+      }}
+    when day_info[:consultation]
+      {type: :consultation, title: day_cell.at_css('.head_ekz').text.strip, content: {
+        discipline: day_cell.at_css('.disc')&.text&.strip,
+        teacher: day_cell.at_css('.prep')&.text&.strip,
+        classroom: day_cell.at_css('.cab')&.text&.strip
+      }}
     else
       {type: :subject, content: {
         discipline: day_cell.at_css('.disc')&.text&.strip,
