@@ -9,6 +9,14 @@ require_relative 'user'
 require_relative 'dev_bot'
 require_relative 'logger'
 
+if (message = ENV['NOTIFY'])
+  require_relative 'notification'
+  User.logger = Logger.new($stdout, Logger::DEBUG)
+  User.restore
+  notify message
+  exit
+end
+
 if ENV['TELEGRAM_BOT_TOKEN'].nil?
   puts "FATAL: Environment variable TELEGRAM_BOT_TOKEN is nil"
   quit
