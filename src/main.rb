@@ -25,10 +25,11 @@ end
 HOUR = 60 * 60
 
 class RaspishikaBot
+  BOT_USERNAME = ENV['BOT_USERNAME']
   DEFAULT_KEYBOARD = [
     ["Оставшиеся пары"],
     ["Завтра", "Неделя"],
-    ["Выбрать другую группу", "Настроить рассылку"],
+    ["Выбрать группу", "Настроить рассылку"],
   ]
   if ENV["DEBUG_CM"]
     DEFAULT_KEYBOARD.push(
@@ -83,14 +84,14 @@ class RaspishikaBot
       @bot = bot
       bot.api.set_my_commands(
         commands: [
-          {command: 'start', description: 'Запуск бота'},
-          {command: 'help', description: 'Помощь'},
-          {command: 'set_group', description: 'Выбрать группу'},
-          {command: 'configure_sending', description: 'Насторить рассылку'},
-          {command: 'cancel', description: 'Отменить действие'},
           {command: 'left', description: 'Оставшиеся пары'},
           {command: 'tomorrow', description: 'Расписание на завтра'},
           {command: 'week', description: 'Расписание на неделю'},
+          {command: 'configure_sending', description: 'Насторить рассылку'},
+          {command: 'set_group', description: 'Выбрать группу'},
+          {command: 'cancel', description: 'Отменить действие'},
+          {command: 'help', description: 'Помощь'},
+          {command: 'start', description: 'Запуск бота'},
         ]
       )
 
@@ -169,11 +170,21 @@ class RaspishikaBot
   end
 
   def handle_message message
-    logger.debug(
-      "Received: #{message.text} from #{message.chat.id}" \
-      " (@#{message.from.username}, #{message.from.first_name} #{message.from.last_name})"
-    )
+    logger.debug "Received message: #{message.class}"
+    case message
+    when Telegram::Bot::Types::Message then handle_text_message message
+    end
+  end
+
+  def handle_text_message message
+    return unless message.text
+
     begin
+      logger.debug(
+        "Received: #{message.text} from #{message.chat.id}" \
+        " (@#{message.from.username}, #{message.from.first_name} #{message.from.last_name})"
+      )
+  
       user = User[message.chat.id]
       if message.text.downcase != '/start' && user.statistics[:start].nil?
         user.statistics[:start] = Time.now
@@ -183,10 +194,10 @@ class RaspishikaBot
         report msg
       end
 
-      case message.text.downcase
+      case message.text.downcase.then { it.end_with?("@#{BOT_USERNAME}") ? it.match(/^(.*)@#{BOT_USERNAME}$/).match(1) : it }
       when '/start' then start_message message, user
       when '/help' then help_message message, user
-      when '/set_group', 'выбрать другую группу' then configure_group message, user
+      when '/set_group', 'выбрать группу' then configure_group message, user
       when ->(t) { user.state == :select_department && user.departments.map(&:downcase).include?(t) }
         select_department message, user
       when ->(t) { user.groups.keys.map(&:downcase).include?(t) }
@@ -210,15 +221,10 @@ class RaspishikaBot
       when 'выкл. рассылку перед парами' then disable_pair_sending message, user
       when '/cancel', 'отмена' then cancel_action message, user
       when %r(^/debug\s+\w+$) then debug_command message, user
-      else
-        bot.api.send_message(
-          chat_id: message.chat.id,
-          text: "Я не знаю как ответить на это сообщение :(",
-        )
       end
     rescue => e
       msg =
-        "Unhandled error in `#handle_message`: #{e.detailed_message}\n" \
+        "Unhandled error in `#handle_text_message`: #{e.detailed_message}\n" \
         "\tFrom #{message.chat.id} (#{message.from.username}); message #{message.text.inspect}"
       logger.error msg
       logger.debug e.backtrace.join"\n"
@@ -226,7 +232,7 @@ class RaspishikaBot
       bot.api.send_message(
         chat_id: message.chat.id,
         text: "Произошла ошибка. Попробуйте позже.",
-        reply_markup: DEFAULT_REPLY_MARKUP
+        reply_markup: message.chat.id < 0 ? DEFAULT_REPLY_MARKUP : nil
       )
     end
   end
@@ -235,7 +241,7 @@ class RaspishikaBot
     bot.api.send_message(
       chat_id: message.chat.id,
       text: "Привет! Используй /set_group чтобы задать группу и кнопки ниже для других действий",
-      reply_markup: DEFAULT_REPLY_MARKUP
+      reply_markup: message.chat.id > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
     )
 
     unless user.statistics[:start]
@@ -251,7 +257,7 @@ class RaspishikaBot
     bot.api.send_message(
       chat_id: message.chat.id,
       text: HELP_MESSAGE,
-      reply_markup: DEFAULT_REPLY_MARKUP
+      reply_markup: message.chat.id > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
     )
   end
 
@@ -275,7 +281,7 @@ class RaspishikaBot
       bot.api.send_message(
         chat_id: user.id,
         text: "Не удалось загрузить отделения",
-        reply_markup: DEFAULT_REPLY_MARKUP
+        reply_markup: message.chat.id > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
       )
     end
   end
@@ -307,7 +313,7 @@ class RaspishikaBot
         bot.api.send_message(
           chat_id: message.chat.id,
           text: "Не удалось загрузить группы для этого отделения",
-          reply_markup: DEFAULT_REPLY_MARKUP
+          reply_markup: message.chat.id > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
         )
       end
     else
@@ -318,7 +324,7 @@ class RaspishikaBot
       bot.api.send_message(
         chat_id: message.chat.id,
         text: "Не удалось загрузить отделение",
-        reply_markup: DEFAULT_REPLY_MARKUP
+        reply_markup: message.chat.id > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
       )
       logger.warn "Reached code supposed to be unreachable!"
       msg = "User #{message.chat.id} (#{message.from.username}) tried to select department #{message.text} but it doesn't exist"
@@ -336,8 +342,8 @@ class RaspishikaBot
 
       bot.api.send_message(
         chat_id: message.chat.id,
-        text: "Теперь ты в группе #{message.text}",
-        reply_markup: DEFAULT_REPLY_MARKUP
+        text: "Теперь #{message.chat.id > 0 ? 'ты' : 'вы'} в группе #{message.text}",
+        reply_markup: message.chat.id > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
       )
     else
       user.department = nil
@@ -346,7 +352,7 @@ class RaspishikaBot
       bot.api.send_message(
         chat_id: message.chat.id,
         text: "Группа #{message.text} не найдена. Доступные группы:\n#{user.groups.keys.join(" , ")}",
-        reply_markup: DEFAULT_REPLY_MARKUP
+        reply_markup: message.chat.id > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
       )
       logger.warn "Reached code supposed to be unreachable!"
       msg = "User #{message.chat.id} (#{message.from.username}) tried to select group #{message.text} but it doesn't exist"
@@ -386,14 +392,18 @@ class RaspishikaBot
 
     file_path = ImageGenerator.image_path(**user.group_info)
     make_photo = ->() { Faraday::UploadIO.new(file_path, 'image/png') }
-    bot.api.send_photo(chat_id: user.id, photo: make_photo.call, reply_markup: DEFAULT_REPLY_MARKUP)
+    bot.api.send_photo(
+      chat_id: user.id,
+      photo: make_photo.call,
+      reply_markup: message.chat.id > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
+    )
     unless schedule
       bot.api.send_message(
         chat_id: user.id,
         text:
           "Не удалось обновить расписание, *картинка может быть не актуальной!* Попробуйте позже.",
           parse_mode: 'Markdown',
-        reply_markup: DEFAULT_REPLY_MARKUP
+        reply_markup: message.chat.id > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
       )
       report("Failed to fetch schedule for #{user.group_info}", photo: make_photo.call)
     end
@@ -438,7 +448,7 @@ class RaspishikaBot
       chat_id: user.id,
       text:,
       parse_mode: 'Markdown',
-      reply_markup: DEFAULT_REPLY_MARKUP
+      reply_markup: message.chat.id > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
     )
     bot.api.delete_message(chat_id: sent_message.chat.id, message_id: sent_message.message_id)
   end
@@ -463,7 +473,7 @@ class RaspishikaBot
       bot.api.send_message(
         chat_id: user.id,
         text: "Сегодня воскресенье, отдыхай!",
-        reply_markup: DEFAULT_REPLY_MARKUP)
+        reply_markup: message.chat.id > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json)
       return
     end
 
@@ -487,7 +497,7 @@ class RaspishikaBot
       chat_id: user.id,
       text:,
       parse_mode: 'Markdown',
-      reply_markup: DEFAULT_REPLY_MARKUP
+      reply_markup: message.chat.id > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
     )
     bot.api.delete_message(chat_id: sent_message.chat.id, message_id: sent_message.message_id)
   end
@@ -539,7 +549,7 @@ class RaspishikaBot
       chat_id: message.chat.id,
       text: "Ежедневная рассылка настроена на `#{fomratted_time}`",
       parse_mode: 'Markdown',
-      reply_markup: DEFAULT_REPLY_MARKUP
+      reply_markup: message.chat.id > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
     )
   end
 
@@ -549,7 +559,7 @@ class RaspishikaBot
     bot.api.send_message(
       chat_id: message.chat.id,
       text: "Ежедневная рассылка отключена",
-      reply_markup: DEFAULT_REPLY_MARKUP
+      reply_markup: message.chat.id > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
     )
   end
 
@@ -557,7 +567,7 @@ class RaspishikaBot
     bot.api.send_message(
       chat_id: message.chat.id,
       text: "В разработке.",
-      reply_markup: DEFAULT_REPLY_MARKUP
+      reply_markup: message.chat.id > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
     )
     return
     user.pair_sending = true
@@ -565,7 +575,7 @@ class RaspishikaBot
     bot.api.send_message(
       chat_id: message.chat.id,
       text: "Рассылкка перед каждой парой включена",
-      reply_markup: DEFAULT_REPLY_MARKUP
+      reply_markup: message.chat.id > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
     )
   end
 
@@ -573,7 +583,7 @@ class RaspishikaBot
     bot.api.send_message(
       chat_id: message.chat.id,
       text: "В разработке.",
-      reply_markup: DEFAULT_REPLY_MARKUP
+      reply_markup: message.chat.id > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
     )
     return
     user.pair_sending = false
@@ -581,7 +591,7 @@ class RaspishikaBot
     bot.api.send_message(
       chat_id: message.chat.id,
       text: "Рассылкка перед каждой парой выключена",
-      reply_markup: DEFAULT_REPLY_MARKUP
+      reply_markup: message.chat.id > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
     )
   end
 
@@ -595,7 +605,7 @@ class RaspishikaBot
       bot.api.send_message(
         chat_id: message.chat.id,
         text: "Тест `#{debug_command_name}` не найден.\n\nДоступные тесты: #{DebugCommands.methods.join(', ')}",
-        reply_markup: DEFAULT_REPLY_MARKUP
+        reply_markup: message.chat.id > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
       )
       return
     end
@@ -609,14 +619,14 @@ class RaspishikaBot
       bot.api.send_message(
         chat_id: message.chat.id,
         text: "Нечего отменять",
-        reply_markup: DEFAULT_REPLY_MARKUP
+        reply_markup: message.chat.id > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
       )
-    else # :select_department, :select_group, :select_timer
+    else
       user.state = :default
       bot.api.send_message(
         chat_id: message.chat.id,
         text: "Действие отменено",
-        reply_markup: DEFAULT_REPLY_MARKUP
+        reply_markup: message.chat.id > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
       )
     end
   end

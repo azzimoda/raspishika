@@ -39,6 +39,12 @@ pkgs.mkShell {
       echo "Warning: .token_dev file not found. Set DEV_BOT_TOKEN manually."
     fi
 
+    if [ -f .username ]; then
+      export BOT_USERNAME=$(cat .username)
+    else
+      echo "Warning: .username file not found. Set BOT_USERNAME manually."
+    fi
+
     mkdir -p data data/cache data/debug
 
     if [ ! -d "$GEM_HOME" ]; then
@@ -58,6 +64,7 @@ pkgs.mkShell {
 
     echo TELEGRAM_BOT_TOKEN=$TELEGRAM_BOT_TOKEN
     echo DEV_BOT_TOKEN=$DEV_BOT_TOKEN
+    echo BOT_USERNAME=$BOT_USERNAME
     echo "Use 'run' to run the bot (alias of 'bundle exec ruby src/main.rb')"
   '';
 }
