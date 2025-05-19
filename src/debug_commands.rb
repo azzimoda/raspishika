@@ -36,4 +36,8 @@ module DebugCommands
   def self.raise_error(**)
     raise "Test unhandled error"
   end
+
+  def self.delete_start_timestamp(user:, **)
+    user.statistics[:start] = nil
+  end
 end

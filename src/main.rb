@@ -169,9 +169,20 @@ class RaspishikaBot
   end
 
   def handle_message message
-    logger.debug "Received: #{message.text} from #{message.chat.id} (#{message.from.username})"
+    logger.debug(
+      "Received: #{message.text} from #{message.chat.id}" \
+      " (@#{message.from.username}, #{message.from.first_name} #{message.from.last_name})"
+    )
     begin
       user = User[message.chat.id]
+      if message.text.downcase != '/start' && user.statistics[:start].nil?
+        user.statistics[:start] = Time.now
+        msg = "New user: #{message.chat.id}" \
+          " (@#{message.from.username}, #{message.from.first_name} #{message.from.last_name})"
+        logger.debug msg
+        report msg
+      end
+
       case message.text.downcase
       when '/start' then start_message message, user
       when '/help' then help_message message, user
@@ -226,6 +237,14 @@ class RaspishikaBot
       text: "Привет! Используй /set_group чтобы задать группу и кнопки ниже для других действий",
       reply_markup: DEFAULT_REPLY_MARKUP
     )
+
+    unless user.statistics[:start]
+      user.statistics[:start] = Time.now
+      msg = "New user: #{message.chat.id}" \
+        " (@#{message.from.username}, #{message.from.first_name} #{message.from.last_name})"
+      logger.debug msg
+      report msg
+    end
   end
 
   def help_message(message, user)

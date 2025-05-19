@@ -79,6 +79,8 @@ class RaspishikaDevBot
     when '/log' then send_log message
     when '/departments' then send_departments message
     when '/groups' then send_groups message
+    when '/new_users' then send_new_users message
+    when %r(/new_users\s+(\d+)) then send_new_users message, days: Regexp.last_match(1).to_i
     else bot.api.send_message(chat_id: message.chat.id, text: "Huh?")
     end
   rescue => e
@@ -133,5 +135,20 @@ class RaspishikaDevBot
       .map { |k, v| "#{k} (#{v} users)" }
       .join("\n")
     bot.api.send_message(chat_id: message.chat.id, text:)
+  end
+
+  def send_new_users message, days: 1
+    users = User.users.values.select do |user| 
+      user.statistics[:start] && user.statistics[:start] >= Time.now - days * 24 * 60 * 60
+    end
+    text = users.map do |user|
+      "#{user.id} #{user.statistics[:start].strftime('%F %T')} #{user.department_name} #{user.group_name}"
+    end.join("\n")
+
+    if text.strip.empty?
+      bot.api.send_message(chat_id: message.chat.id, text: "No new users for the period.")
+    else
+      bot.api.send_message(chat_id: message.chat.id, text:)
+    end
   end
 end
