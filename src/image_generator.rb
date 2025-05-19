@@ -1,6 +1,6 @@
 module ImageGenerator
-  IMAGE_WIDTH = 1200
-  IMAGE_HEIGHT = 800
+  IMAGE_WIDTH = 1280
+  IMAGE_HEIGHT = 1000
   CACHE_DIR = File.expand_path('../data/cache', __dir__).freeze
   FileUtils.mkdir_p CACHE_DIR
 
