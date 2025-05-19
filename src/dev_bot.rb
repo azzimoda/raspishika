@@ -29,6 +29,8 @@ class RaspishikaDevBot
           {command: 'start', description: 'Start'},
           {command: 'help', description: 'No help'},
           {command: 'log', description: 'Get last log'},
+          {command: 'departments', description: 'Get departments statistics'},
+          {command: 'groups', description: 'Get groups statistics'},
         ]
       )
       begin
@@ -75,17 +77,14 @@ class RaspishikaDevBot
     when ->(*) { @admin_chat_id.nil? } then return
     when %r(/log\s+(\d+)) then send_log message, lines: Regexp.last_match(1).to_i
     when '/log' then send_log message
-    when '/stats' then send_stats message
+    when '/departments' then send_departments message
+    when '/groups' then send_groups message
     else bot.api.send_message(chat_id: message.chat.id, text: "Huh?")
     end
   rescue => e
     bot.api.send_message(
       chat_id: @admin_chat_id, text: "Unlandled error in `#handle_message`: #{e.detailed_message}"
     )
-  end
-
-  def send_stats message
-    bot.api.send_message(chat_id: message.chat.id, text: "Nothing yet(")
   end
 
   def send_log message, lines: 20
@@ -106,5 +105,33 @@ class RaspishikaDevBot
   rescue => e
     "Failed to get last log: #{e.detailed_message}".tap { logger.error it; report it }
     ''
+  end
+
+  def send_departments message
+    departments = {}
+    User.users.each_value do |user|
+      departments[user.department_name] ||= {groups: Set.new, users: 0}
+      departments[user.department_name][:groups].add user.group
+      departments[user.department_name][:users] += 1
+    end
+    departments.each_value { it[:groups] = it[:groups].size }
+
+    text = departments.sort { |a, b| a[1][:groups] <=> b[1][:groups] }
+      .map { |k, v| "#{k} (#{v[:groups]} groups, #{v[:users]} users)" }
+      .join("\n")
+    bot.api.send_message(chat_id: message.chat.id, text:)
+  end
+
+  def send_groups message
+    groups = {}
+    User.users.each_value do |user|
+      groups[user.group_name] ||= 0
+      groups[user.group_name] += 1
+    end
+
+    text = groups.sort { |a, b| a[1] <=> b[1] }
+      .map { |k, v| "#{k} (#{v} users)" }
+      .join("\n")
+    bot.api.send_message(chat_id: message.chat.id, text:)
   end
 end
