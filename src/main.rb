@@ -87,7 +87,7 @@ class RaspishikaBot
           {command: 'left', description: 'Оставшиеся пары'},
           {command: 'tomorrow', description: 'Расписание на завтра'},
           {command: 'week', description: 'Расписание на неделю'},
-          {command: 'configure_sending', description: 'Насторить рассылку'},
+          {command: 'configure_sending', description: 'Настроить рассылку'},
           {command: 'set_group', description: 'Выбрать группу'},
           {command: 'cancel', description: 'Отменить действие'},
           {command: 'help', description: 'Помощь'},
@@ -205,7 +205,7 @@ class RaspishikaBot
       when '/week', 'неделя' then send_week_schedule message, user
       when '/tomorrow', 'завтра' then send_tomorrow_schedule message, user
       when '/left', 'оставшиеся пары' then send_left_schedule message, user
-      when '/configure_sending', 'насторить рассылку' then configure_sending message, user
+      when '/configure_sending', 'настроить рассылку' then configure_sending message, user
       when 'ежедневная рассылка' then configure_daily_sending message, user
       when %r(^\d{1,2}:\d{2}$)
         if (message.text =~ %r(^\d{1,2}:\d{2}$) && Time.parse(message.text) rescue false)
