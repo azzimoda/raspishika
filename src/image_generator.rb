@@ -1,5 +1,5 @@
 module ImageGenerator
-  IMAGE_WIDTH = 1280
+  IMAGE_WIDTH = 1400
   IMAGE_HEIGHT = 1000
   CACHE_DIR = File.expand_path('../data/cache', __dir__).freeze
   FileUtils.mkdir_p CACHE_DIR
@@ -111,7 +111,7 @@ module ImageGenerator
         <<~HTML
         <td class='#{css_class}'>
         <span class='title'>#{day[:title]}</span><br>
-        <br>
+        <hr>
         <span class='discipline'>#{day[:content][:discipline]}</span><br>
         <br>
         <span class='teacher'>#{day[:content][:teacher]}</span><br>
