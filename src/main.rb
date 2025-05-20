@@ -82,7 +82,9 @@ class RaspishikaBot
 
     Telegram::Bot::Client.run(@token) do |bot|
       @bot = bot
-      @username = bot.api.get_me['username']
+      @username = bot.api.get_me.username
+      logger.info "Bot's username: #{@username}"
+
       bot.api.set_my_commands(
         commands: [
           {command: 'left', description: 'Оставшиеся пары'},
@@ -126,8 +128,8 @@ class RaspishikaBot
     report "Bot stopped."
     @run = false
     User.backup
-    @dev_bot_thread.kill
-    @sending_thread.join
+    @dev_bot_thread&.kill
+    @sending_thread&.join
     @parser.stop_browser_thread
   end
 
