@@ -25,7 +25,6 @@ end
 HOUR = 60 * 60
 
 class RaspishikaBot
-  BOT_USERNAME = ENV['BOT_USERNAME']
   DEFAULT_KEYBOARD = [
     ["Оставшиеся пары"],
     ["Завтра", "Неделя"],
@@ -68,6 +67,7 @@ class RaspishikaBot
     @token = ENV['TELEGRAM_BOT_TOKEN']
     @run = true
     @dev_bot = RaspishikaDevBot.new logger: @logger
+    @username = nil
 
     ImageGenerator.logger = Cache.logger = User.logger = @logger
     User.restore
@@ -82,6 +82,7 @@ class RaspishikaBot
 
     Telegram::Bot::Client.run(@token) do |bot|
       @bot = bot
+      @username = bot.api.get_me['username']
       bot.api.set_my_commands(
         commands: [
           {command: 'left', description: 'Оставшиеся пары'},
@@ -170,9 +171,9 @@ class RaspishikaBot
   end
 
   def handle_message message
-    logger.debug "Received message: #{message.class}"
     case message
     when Telegram::Bot::Types::Message then handle_text_message message
+    else logger.debug "Unhandled message type: #{message.class}"
     end
   end
 
@@ -194,7 +195,14 @@ class RaspishikaBot
         report msg
       end
 
-      case message.text.downcase.then { it.end_with?("@#{BOT_USERNAME}") ? it.match(/^(.*)@#{BOT_USERNAME}$/).match(1) : it }
+      text = message.text.downcase.then do
+        if it.end_with?("@#{@username.downcase}")
+          it.match(/^(.*)@#{@username.downcase}$/).match(1)
+        else
+          it
+        end
+      end
+      case text
       when '/start' then start_message message, user
       when '/help' then help_message message, user
       when '/set_group', 'выбрать группу' then configure_group message, user
@@ -221,6 +229,9 @@ class RaspishikaBot
       when 'выкл. рассылку перед парами' then disable_pair_sending message, user
       when '/cancel', 'отмена' then cancel_action message, user
       when %r(^/debug\s+\w+$) then debug_command message, user
+      else
+        logger.debug "Unhandled text message:" \
+          " #{message.text.size > 64 ? message.text[0..63] + '...' : message.text}"
       end
     rescue => e
       msg =
