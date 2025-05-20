@@ -207,7 +207,6 @@ class ScheduleParser
       row.css('td:nth-child(n+3)').each_with_index do |day_cell, day_index|
         day_info = day_headers[day_index] || {}
         day_info[:replaced] = day_cell.css('table.zamena').any?
-        day_info[:exam] = day_cell.css('table.zachet').any?
         day_info[:consultation] = day_cell.css('table.consultation').any?
         time_slot[:days] << parse_day_entry(day_cell, day_info)
       end
@@ -227,13 +226,13 @@ class ScheduleParser
     when day_cell['class']&.include?('head_urok_iga')
       {type: :iga, content: day_cell.text.strip}
     when day_cell['class']&.include?('event')
-      # Event
       {type: :event, content: day_cell.text.strip}
     when day_cell['class']&.include?('head_urok_praktik')
       {type: :practice, content: day_cell.text.strip}
     when day_cell['class']&.include?('head_urok_session')
       {type: :session, content: day_cell.text.strip}
-    when day_info[:exam]
+    when (day_cell.css('table.zachet').any? || day_cell.css('table.difzachet').any? ||
+          day_cell.css('table.ekzamen').any?)
       {type: :exam, title: day_cell.at_css('.head_ekz').text.strip, content: {
         discipline: day_cell.at_css('.disc')&.text&.strip,
         teacher: day_cell.at_css('.prep')&.text&.strip,
