@@ -26,11 +26,13 @@ class RaspishikaDevBot
       @bot = bot
       bot.api.set_my_commands(
         commands: [
-          {command: 'start', description: 'Start'},
-          {command: 'help', description: 'No help'},
-          {command: 'log', description: 'Get last log'},
           {command: 'departments', description: 'Get departments statistics'},
           {command: 'groups', description: 'Get groups statistics'},
+          {command: 'chats', description: 'Get chats statistics'},
+          {command: 'new_users', description: 'Get new users of a period (days)'},
+          {command: 'log', description: 'Get last log'},
+          {command: 'help', description: 'No help'},
+          {command: 'start', description: 'Start'},
         ]
       )
       begin
@@ -79,6 +81,7 @@ class RaspishikaDevBot
     when '/log' then send_log message
     when '/departments' then send_departments message
     when '/groups' then send_groups message
+    when '/chats' then send_chats message
     when '/new_users' then send_new_users message
     when %r(/new_users\s+(\d+)) then send_new_users message, days: Regexp.last_match(1).to_i
     else bot.api.send_message(chat_id: message.chat.id, text: "Huh?")
@@ -135,6 +138,17 @@ class RaspishikaDevBot
       .map { |k, v| "#{k} (#{v} users)" }
       .join("\n")
     bot.api.send_message(chat_id: message.chat.id, text:)
+  end
+
+  def send_chats message
+    private_chats = 0
+    group_chats = 0
+    User.users.each_value { it.id.to_i > 0 ? private_chats += 1 : group_chats += 1 }
+
+    bot.api.send_message(
+      chat_id: message.chat.id,
+      text: "Private chats: #{private_chats}; Group chats: #{group_chats}."
+    )
   end
 
   def send_new_users message, days: 1
