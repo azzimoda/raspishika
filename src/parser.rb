@@ -9,6 +9,7 @@ require_relative 'image_generator'
 
 class ScheduleParser
   TIMEOUT = 30
+  MAX_RETRIES = 3
   BASE_URL = 'https://mnokol.tyuiu.ru'.freeze
 
   def initialize(logger: nil)
@@ -73,12 +74,14 @@ class ScheduleParser
 
     use_browser do |browser|
       page = browser.new_page
-      page.goto(department_url, timeout: TIMEOUT * 1000)
+      retryit() { page.goto(department_url, timeout: TIMEOUT * 1000) }
 
-      iframe = page.wait_for_selector('div.com-content-article__body iframe', timeout: TIMEOUT * 1000)
+      iframe = retryit do
+        page.wait_for_selector('div.com-content-article__body iframe', timeout: TIMEOUT * 1000)
+      end
       page = iframe.content_frame
 
-      select = page.wait_for_selector('#groups', timeout: TIMEOUT * 1000)
+      select = retryit { page.wait_for_selector('#groups', timeout: TIMEOUT * 1000) }
       options = page.eval_on_selector_all('#groups option', 'els => els.map(el => ({ text: el.textContent.trim(), value: el.value, sid: el.getAttribute("sid") }))')
 
       options.each do |opt|
@@ -118,13 +121,13 @@ class ScheduleParser
       page.goto('https://mnokol.tyuiu.ru/')
       sleep 1
 
-      page.goto(url, timeout: TIMEOUT * 1000)
+      retryit { page.goto(url, timeout: TIMEOUT * 1000) }
       page.mouse.move(0, rand(100..300))
       sleep 0.5
 
       logger&.debug "Waiting for table..."
       html = page.content
-      page.wait_for_selector('#main_table', timeout: TIMEOUT * 1000)
+      retryit { page.wait_for_selector('#main_table', timeout: TIMEOUT * 1000) }
       html = page.content
 
       doc = Nokogiri::HTML(html)
@@ -146,6 +149,26 @@ class ScheduleParser
       logger&.debug "Original HTML saved into data/debug/schedule.html"
     end
   end
+
+  def retryit(times: MAX_RETRIES, &block)
+    retries = times
+    delay = 1
+    begin
+      return block.call
+    rescue => e
+      retries -= 1
+      if retries > 0
+        logger&.warn "Failed to load page, retrying... (#{retries} retries left)"
+        sleep delay
+        delay *= 2
+        retry
+      else
+        logger&.error "Failed to load page after #{times} retries"
+        raise e
+      end
+    end
+  end
+
 
   def parse_schedule_table(table)
     unless table
@@ -179,7 +202,6 @@ class ScheduleParser
         return nil
       end
       time_range = time_range.text.strip
-      # logger&.debug "Time range: #{time_range}"
 
       time_slot = {pair_number:, time_range:, days: []}
       row.css('td:nth-child(n+3)').each_with_index do |day_cell, day_index|
@@ -208,7 +230,6 @@ class ScheduleParser
       # Event
       {type: :event, content: day_cell.text.strip}
     when day_cell['class']&.include?('head_urok_praktik')
-      # Practice # TODO: Check formatting, maybe it's like a subject
       {type: :practice, content: day_cell.text.strip}
     when day_cell['class']&.include?('head_urok_session')
       {type: :session, content: day_cell.text.strip}
