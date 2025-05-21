@@ -17,12 +17,13 @@ class RaspishikaDevBot
   def run
     return unless @run
     unless @token
-      logger.warn "Token for statistics bot is not set! It won't run."
+      logger.warn('DevBot') { "Token for statistics bot is not set! It won't run." }
       return
     end
 
-    logger.info "Starting statistics bot..."
+    logger.info('DevBot') { "Starting statistics bot..." }
     Telegram::Bot::Client.run(@token) do |bot|
+      logger.info('DevBot') { "Bot is running." }
       @bot = bot
       bot.api.set_my_commands(
         commands: [
@@ -38,13 +39,13 @@ class RaspishikaDevBot
       begin
         bot.listen { handle_message it }
       rescue Telegram::Bot::Exceptions::ResponseError => e
-        logger.error "Telegram bot error: #{e.detailed_message}"
+        logger.error('DevBot') { "Telegram API error: #{e.detailed_message}\n\tRetrying..." }
         retry
       end
     end
   rescue Interrupt
     puts
-    puts "Keyboard interruption"
+    logger.warn('DevBot') { "Keyboard interruption" }
   ensure
     File.write(ADMIN_CHAT_ID_FILE, @admin_chat_id.to_s) if @admin_chat_id
   end
@@ -52,7 +53,7 @@ class RaspishikaDevBot
   def report text, photo: nil, backtrace: nil, log: nil
     return unless @token && @admin_chat_id && @run
 
-    logger.info "Sending report #{text.inspect}..."
+    logger.info('DevBot') { "Sending report #{text.inspect}..." }
     bot.api.send_photo(chat_id: @admin_chat_id, photo:) if photo
     if log
       bot.api.send_message(

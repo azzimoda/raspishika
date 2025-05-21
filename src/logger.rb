@@ -9,33 +9,33 @@ class MyLogger
   end
   attr_reader :log_file
 
-  def debug(msg)
-    @stderr_logger.debug(msg)
-    @file_logger.debug(msg)
+  def debug(msg, &block)
+    @stderr_logger.debug(msg, &block)
+    @file_logger.debug(msg, &block)
   end
 
-  def info(msg)
-    @stderr_logger.info(msg)
-    @file_logger.info(msg)
+  def info(msg, &block)
+    @stderr_logger.info(msg, &block)
+    @file_logger.info(msg, &block)
   end
 
-  def warn(msg)
-    @stderr_logger.warn(msg)
-    @file_logger.warn(msg)
+  def warn(msg, &block)
+    @stderr_logger.warn(msg, &block)
+    @file_logger.warn(msg, &block)
   end
 
-  def error(msg)
-    @stderr_logger.error(msg)
-    @file_logger.error(msg)
+  def error(msg, &block)
+    @stderr_logger.error(msg, &block)
+    @file_logger.error(msg, &block)
   end
 
-  def fatal(msg)
-    @stderr_logger.fatal(msg)
-    @file_logger.fatal(msg)
+  def fatal(msg, &block)
+    @stderr_logger.fatal(msg, &block)
+    @file_logger.fatal(msg, &block)
   end
 
-  def unknown(msg)
-    @stderr_logger.unknown(msg)
-    @file_logger.unknown(msg)
+  def unknown(msg, &block)
+    @stderr_logger.unknown(msg, &block)
+    @file_logger.unknown(msg, &block)
   end
 end
