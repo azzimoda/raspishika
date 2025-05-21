@@ -67,22 +67,32 @@ class ScheduleParser
   end
 
   def fetch_groups(department_url)
+    if department_url.nil? || department_url.empty?
+      raise ArgumentError, "department_url is `nil` or empty: #{department_url.inspect}"
+    end
+
     logger&.info "Fetching groups for #{department_url}"
-    return nil if department_url.nil? || department_url.empty?
 
     groups = {}
-
     use_browser do |browser|
       page = browser.new_page
-      retryit() { page.goto(department_url, timeout: TIMEOUT * 1000) }
+      options = try_timeout do
+        page.goto(department_url, timeout: TIMEOUT * 1000)
 
-      iframe = retryit do
-        page.wait_for_selector('div.com-content-article__body iframe', timeout: TIMEOUT * 1000)
+        iframe = page.wait_for_selector(
+          'div.com-content-article__body iframe',
+          timeout: TIMEOUT * 1000
+        )
+        page = iframe.content_frame
+
+        select = page.wait_for_selector('#groups', timeout: TIMEOUT * 1000)
+        raise "Failed to find groups selector" if select.nil?
+
+        page.eval_on_selector_all(
+          '#groups option',
+          'els => els.map(el => ({ text: el.textContent.trim(), value: el.value, sid: el.getAttribute("sid") }))'
+        )
       end
-      page = iframe.content_frame
-
-      select = retryit { page.wait_for_selector('#groups', timeout: TIMEOUT * 1000) }
-      options = page.eval_on_selector_all('#groups option', 'els => els.map(el => ({ text: el.textContent.trim(), value: el.value, sid: el.getAttribute("sid") }))')
 
       options.each do |opt|
         next if opt['value'] == '0'
@@ -121,21 +131,23 @@ class ScheduleParser
       page.goto('https://mnokol.tyuiu.ru/')
       sleep 1
 
-      retryit { page.goto(url, timeout: TIMEOUT * 1000) }
-      page.mouse.move(0, rand(100..300))
-      sleep 0.5
+      html = nil
+      try_timeout do
+        page.goto(url, timeout: TIMEOUT * 1000)
 
-      logger&.debug "Waiting for table..."
-      html = page.content
-      retryit { page.wait_for_selector('#main_table', timeout: TIMEOUT * 1000) }
-      html = page.content
+        page.mouse.move(0, rand(100..300))
+        sleep 0.5
 
-      doc = Nokogiri::HTML(html)
-      schedule = parse_schedule_table(doc.at_css('table#main_table')) || "Расписание не найдено"
-      unless schedule
-        logger&.error "Failed to parse schedule."
-        return nil
+        logger&.debug "Waiting for table..."
+        html = page.content
+        page.wait_for_selector('#main_table', timeout: TIMEOUT * 1000)
+        html = page.content
       end
+
+      doc = Nokogiri::HTML html
+      schedule = parse_schedule_table(doc.at_css('table#main_table')) || "Расписание не найдено"
+      raise "Failed to find table#main_table." unless schedule
+
       ImageGenerator.generate(page, schedule, **group_info)
       schedule
     rescue Playwright::TimeoutError => e
@@ -150,7 +162,7 @@ class ScheduleParser
     end
   end
 
-  def retryit(times: MAX_RETRIES, &block)
+  def try_timeout(times: MAX_RETRIES, &block)
     retries = times
     delay = 1
     begin
