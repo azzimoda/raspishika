@@ -64,20 +64,23 @@ class RaspishikaBot
   def initialize
     @logger = MyLogger.new # Logger.new($stderr, level: Logger::DEBUG)
     @parser = ScheduleParser.new(logger: @logger)
+
     @token = ENV['TELEGRAM_BOT_TOKEN']
     @run = true
     @dev_bot = RaspishikaDevBot.new logger: @logger
     @username = nil
-
+    
     ImageGenerator.logger = Cache.logger = User.logger = @logger
     User.restore
   end
   attr_accessor :bot, :logger, :parser
 
   def run
+    logger.info "Starting bot..."
+    @user_backup_thread = Thread.new(self, &:user_backup_loop)
+
     @dev_bot_thread = Thread.new(@dev_bot, &:run)
 
-    logger.info "Starting bot..."
     @parser.initialize_browser_thread
 
     Telegram::Bot::Client.run(@token) do |bot|
@@ -127,10 +130,21 @@ class RaspishikaBot
   ensure
     report "Bot stopped."
     @run = false
+    @user_backup_thread&.join
     User.backup
     @dev_bot_thread&.kill
     @sending_thread&.join
     @parser.stop_browser_thread
+  end
+
+  def user_backup_loop
+    while @run
+      User.backup
+      (600).times do
+        break unless @run
+        sleep 1
+      end
+    end
   end
 
   def sending_loop

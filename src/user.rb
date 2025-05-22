@@ -1,5 +1,6 @@
 class User
-  BACKUP_FILE = File.join('data', 'users.json')
+  BACKUP_FILE = File.expand_path('../data/users.json', __dir__)
+  TEMP_FILE = File.expand_path('../data/cache/users.json.tmp', __dir__)
 
   @users = {}
   @logger = nil
@@ -17,9 +18,17 @@ class User
     end
 
     def backup
+      FileUtils.mkdir_p File.dirname TEMP_FILE
       FileUtils.mkdir_p File.dirname BACKUP_FILE
-      File.write(BACKUP_FILE, JSON.dump(@users))
+
+      File.write(TEMP_FILE, JSON.dump(@users))
+      logger.debug "Temporary backed up #{@users.size} users to #{TEMP_FILE}"
+
+      FileUtils.mv(TEMP_FILE, BACKUP_FILE)
       logger.info "Backed up #{@users.size} users to #{BACKUP_FILE}"
+    rescue => e
+      logger.error "Backup failed: #{e.message}"
+      raise
     end
 
     def restore
