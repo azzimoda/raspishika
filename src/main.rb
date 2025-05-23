@@ -22,7 +22,7 @@ if ENV['TELEGRAM_BOT_TOKEN'].nil?
   quit
 end
 
-HOUR = 60 * 60
+LONG_CACHE_TIME = 24 * 60 * 60 # 24 hours
 
 class RaspishikaBot
   DEFAULT_KEYBOARD = [
@@ -289,7 +289,7 @@ class RaspishikaBot
   end
 
   def configure_group(message, user)
-    departments = Cache.fetch(:departments, expires_in: HOUR) { parser.fetch_departments }
+    departments = Cache.fetch(:departments, expires_in: LONG_CACHE_TIME) { parser.fetch_departments }
     if departments&.any?
       user.departments = departments.keys
       user.state = :select_department
@@ -314,10 +314,10 @@ class RaspishikaBot
   end
 
   def select_department(message, user)
-    departments = Cache.fetch(:departments, expires_in: HOUR) { parser.fetch_departments }
+    departments = Cache.fetch(:departments, expires_in: LONG_CACHE_TIME) { parser.fetch_departments }
 
     if departments&.key? message.text
-      groups = Cache.fetch(:"groups_#{message.text.downcase}", expires_in: HOUR) do
+      groups = Cache.fetch(:"groups_#{message.text.downcase}", expires_in: LONG_CACHE_TIME) do
         parser.fetch_groups departments[message.text]
       end
       if groups&.any?
