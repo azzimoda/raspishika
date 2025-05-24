@@ -46,18 +46,18 @@ class RaspishikaBot
   HELP_MESSAGE = <<~MARKDOWN
   Доступные команды:
 
-  - /start — Запустить бота.
-  - /help — Показать это сообщение помощи.
-  - /set_group — Выбрать или изменить группу для получения расписания. Следуйте инструкциям: сначала выберите отделение, затем группу.
-  - /week — Получить расписание на неделю.
-  - /tomorrow — Получить расписание на завтра.
-  - /left — Получить информацию об оставшихся парах на сегодня.
-  - /config_sending — Настроить рассылку.
-  - /cancel — Отменить текущее действие.
-
-  Для использования команд /week, /tomorrow, /today_tomorrow, /left необходимо сначала задать группу с помощью /set_group.
-
-  Командой /config_sending можно настроить ежедневную рассылку расписания на неделю. Опция "рассылка перед парами" находится в разработке.
+  - /start — Запуск бота
+  - /help — Помощь
+  - /left — Оставшиеся пары
+  - /tomorrow — Расписание на завтра
+  - /week — Расписание на неделю
+  - /configure_sending — Войти в меню настройки рассылок
+  - /configure_daily_sending — Настроить ежедневную рассылку
+  - /daily_sending_off — Выключить ежедневную рассылку
+  - /pair_sending_on — Включить рассылку перед парами
+  - /pair_sending_off — Выключить рассылку перед парами
+  - /set_group — Выбрать группу
+  - /cancel — Отменить текущее действие
 
   Вы также можете использовать кнопки клавиатуры для быстрого доступа к основным функциям.
   MARKDOWN
@@ -99,6 +99,10 @@ class RaspishikaBot
           {command: 'tomorrow', description: 'Расписание на завтра'},
           {command: 'week', description: 'Расписание на неделю'},
           {command: 'configure_sending', description: 'Настроить рассылку'},
+          {command: 'configure_daily_sending', description: 'Настроить ежедневную рассылку'},
+          {command: 'daily_sending_off', description: 'Выключить ежедневную рассылку'},
+          {command: 'pair_sending_on', description: 'Включить рассылку перед парами'},
+          {command: 'pair_sending_off', description: 'Выключить рассылку перед парами'},
           {command: 'set_group', description: 'Выбрать группу'},
           {command: 'cancel', description: 'Отменить действие'},
           {command: 'help', description: 'Помощь'},
@@ -280,7 +284,7 @@ class RaspishikaBot
       when '/tomorrow', 'завтра' then send_tomorrow_schedule message, user
       when '/left', 'оставшиеся пары' then send_left_schedule message, user
       when '/configure_sending', 'настроить рассылку' then configure_sending message, user
-      when 'ежедневная рассылка' then configure_daily_sending message, user
+      when '/configure_daily_sending', 'ежедневная рассылка' then configure_daily_sending message, user
       when %r(^\d{1,2}:\d{2}$)
         if (message.text =~ %r(^\d{1,2}:\d{2}$) && Time.parse(message.text) rescue false)
           set_daily_sending message, user
@@ -290,9 +294,11 @@ class RaspishikaBot
             text: "Неправильный формат времени, попробуйте ещё раз",
           )
         end
-      when 'отключить' then disable_daily_sending message, user
-      when 'вкл. рассылку перед парами' then enable_pair_sending message, user
-      when 'выкл. рассылку перед парами' then disable_pair_sending message, user
+      when '/daily_sending_off', 'отключить' then disable_daily_sending message, user
+      when '/pair_sending_on', 'вкл. рассылку перед парами'
+        enable_pair_sending message, user
+      when '/pair_sending_off', 'выкл. рассылку перед парами'
+        disable_pair_sending message, user
       when '/cancel', 'отмена' then cancel_action message, user
       when %r(^/debug\s+\w+$) then debug_command message, user
       else
@@ -601,7 +607,7 @@ class RaspishikaBot
     ]
     bot.api.send_message(
       chat_id: user.id,
-      text: "Что настроить?",
+      text: "Какую рассылку настроить?",
       reply_markup: {keyboard:, resize_keyboard: true, one_time_keyboard: true}.to_json
     )
     user.state = :select_senging_type
