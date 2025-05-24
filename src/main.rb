@@ -194,7 +194,9 @@ class RaspishikaBot
       time = Time.parse time
 
       sending_time = time - 15 * 60
-      @scheduler.cron("#{sending_time.min} #{sending_time.hour} * * *") { send_pair_notification time }
+      @scheduler.cron("#{sending_time.min} #{sending_time.hour} * * 1-6") do
+        send_pair_notification time
+      end
     end
   end
 
@@ -227,8 +229,10 @@ class RaspishikaBot
       text =  case pair.data.dig(0, :pairs, 0, :type)
       when :subject, :exam, :consultation
         "Следующая пара в кабинете %{classroom}:\n%{discipline}\n%{teacher}" %
-          (p pair.data.dig(0, :pairs, 0, :content))
-      else next
+          pair.data.dig(0, :pairs, 0, :content)
+      else
+        logger.debug "No pairs left for the group"
+        next
       end
 
       logger.debug "Sending pair notification to #{users.size} users of group #{users.first.group_info[:group_name]}..."
