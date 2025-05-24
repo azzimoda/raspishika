@@ -4,8 +4,17 @@ class MyLogger
   def initialize
     @log_file = File.expand_path("../data/debug/#{Time.now.iso8601}.log", __dir__)
 
-    @stderr_logger = Logger.new($stderr, level: Logger::DEBUG)
-    @file_logger = Logger.new(log_file, level: Logger::DEBUG)
+    level = case ENV['LOGGER']&.downcase
+    when 'debug' then Logger::DEBUG
+    when 'info' then Logger::INFO
+    when 'warn' then Logger::WARN
+    when 'error' then Logger::ERROR
+    when 'fatal' then Logger::FATAL
+    else Logger::DEBUG
+    end
+
+    @stderr_logger = Logger.new($stderr, level:)
+    @file_logger = Logger.new(log_file, level:)
   end
   attr_reader :log_file
 
