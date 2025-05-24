@@ -27,11 +27,13 @@ class RaspishikaDevBot
       @bot = bot
       bot.api.set_my_commands(
         commands: [
+          {command: 'log', description: 'Get last log'},
           {command: 'departments', description: 'Get departments statistics'},
           {command: 'groups', description: 'Get groups statistics'},
           {command: 'chats', description: 'Get chats statistics'},
           {command: 'new_users', description: 'Get new users of a period (days)'},
-          {command: 'log', description: 'Get last log'},
+          {command: 'daily_sending_statistics', description: 'Get daily sending statistics'},
+          {command: 'pair_sending_statistics', description: 'Get pair sending statistics'},
           {command: 'help', description: 'No help'},
           {command: 'start', description: 'Start'},
         ]
@@ -83,6 +85,8 @@ class RaspishikaDevBot
     when '/departments' then send_departments message
     when '/groups' then send_groups message
     when '/chats' then send_chats message
+    when '/daily_sending_statistics' then send_daily_sending_statistics message
+    when '/pair_sending_statistics' then send_pair_sending_statistics message
     when '/new_users' then send_new_users message
     when %r(/new_users\s+(\d+)) then send_new_users message, days: Regexp.last_match(1).to_i
     else bot.api.send_message(chat_id: message.chat.id, text: "Huh?")
@@ -114,31 +118,26 @@ class RaspishikaDevBot
   end
 
   def send_departments message
-    departments = {}
-    User.users.each_value do |user|
-      departments[user.department_name] ||= {groups: Set.new, users: 0}
-      departments[user.department_name][:groups].add user.group
-      departments[user.department_name][:users] += 1
-    end
-    departments.each_value { it[:groups] = it[:groups].size }
+    departments = User.users.values.group_by(&:department_name)
+      .transform_keys { it.to_s.ljust 14 }
+      .transform_values { it.group_by(&:group_name).then { [it.size, it.values.sum(&:size)] } }
+      .sort_by(&:last)
+      .reverse
 
-    text = departments.sort { |a, b| a[1][:groups] <=> b[1][:groups] }
-      .map { |k, v| "#{k} (#{v[:groups]} groups, #{v[:users]} users)" }
+    text = departments
+      .map { |k, v| '`%s (%2d groups, %2d users)`' % ([k] + v) }
       .join("\n")
-    bot.api.send_message(chat_id: message.chat.id, text:)
+    bot.api.send_message(chat_id: message.chat.id, text:, parse_mode: 'Markdown')
   end
 
   def send_groups message
-    groups = {}
-    User.users.each_value do |user|
-      groups[user.group_name] ||= 0
-      groups[user.group_name] += 1
-    end
-
-    text = groups.sort { |a, b| a[1] <=> b[1] }
-      .map { |k, v| "#{k} (#{v} users)" }
-      .join("\n")
-    bot.api.send_message(chat_id: message.chat.id, text:)
+    groups = User.users.values.group_by(&:group_name)
+      .transform_keys { just_group it }
+      .transform_values(&:size)
+      .sort_by(&:last)
+      .reverse
+    text = groups.map { '`%14s (%2d users)`' % it }.join("\n")
+    bot.api.send_message(chat_id: message.chat.id, text:, parse_mode: 'Markdown')
   end
 
   def send_chats message
@@ -152,18 +151,59 @@ class RaspishikaDevBot
     )
   end
 
-  def send_new_users message, days: 1
-    users = User.users.values.select do |user| 
-      user.statistics[:start] && user.statistics[:start] >= Time.now - days * 24 * 60 * 60
+  def send_new_users(message, days: 1)
+    users = if days == 0
+      User.users.values
+    else
+      User.users.values.select do |user| 
+        user&.statistics[:start] && user.statistics[:start] >= Time.now - days * 24 * 60 * 60
+      end
     end
+
     text = users.map do |user|
-      "#{user.id} #{user.statistics[:start].strftime('%F %T')} #{user.department_name} #{user.group_name}"
-    end.join("\n")
+      "`%19s %16s\n%14s %s`" % [
+        user.statistics[:start]&.strftime('%F %T'),
+        user.id,
+        user.department_name,
+        just_group(user.group_name)
+      ]
+    end.join("\n\n")
 
     if text.strip.empty?
       bot.api.send_message(chat_id: message.chat.id, text: "No new users for the period.")
     else
-      bot.api.send_message(chat_id: message.chat.id, text:)
+      bot.api.send_message(chat_id: message.chat.id, text:, parse_mode: 'Markdown')
     end
   end
+
+  def send_daily_sending_statistics message
+    times = User.users.values.group_by(&:daily_sending)
+      .transform_keys(&:to_s)
+      .transform_values { it.group_by(&:group_name).then { [it.size, it.values.sum(&:size)] } }
+      .sort_by(&:first)
+    text = times.map { |time, (groups, users)|
+      '`%5s (%2d groups, %2d users)`' % [time, groups, users]
+    }.join("\n")
+    bot.api.send_message(chat_id: message.chat.id, text:, parse_mode: 'Markdown')
+  end
+
+  def send_pair_sending_statistics message
+    states = User.users.values.group_by(&:pair_sending)
+      .transform_keys { it ? 'on' : 'off' }
+      .transform_values { it.group_by(&:group_name).then { [it.size, it.values.sum(&:size)] } }
+    text = states.map do |state, (groups, users)|
+      "`%3s (%2d groups, %2d users)`" % [state, groups, users]
+    end.join("\n")
+    bot.api.send_message(chat_id: message.chat.id, text:, parse_mode: 'Markdown')
+  end
 end
+
+def just_group group
+  return '' if group.nil? || group.empty?
+
+  if group =~ /^(\S+)-(\d+)-\((\d+)\)-(\d+)$/
+    prefix, year, num, suffix = $1, $2, $3, $4
+    "#{prefix.ljust(4)}-#{year}-(%2d)-#{suffix}" % num.to_i
+  else group
+  end
+end  
