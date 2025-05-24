@@ -205,11 +205,13 @@ class RaspishikaBot
       logger.debug "Sending pair notification for #{time} to #{user.id} with group #{user.group_info}..."
       {[user.department, user.group] => [user]}
     else
-      User.users.values.group_by { [it.department, it.group] }
+      User.users.values.select(&:pair_sending).group_by { [it.department, it.group] }
     end
+    logger.debug "Sending pair notification to #{groups.size} groups..."
 
     groups.each do |(sid, gr), users|
       next unless sid && gr
+      next if users.empty? # NOTE: Maybe it's useless line.
 
       raw_schedule = Cache.fetch(:"schedule_#{sid}_#{gr}") do
         @parser.fetch_schedule users.first.group_info
@@ -224,13 +226,13 @@ class RaspishikaBot
 
       text =  case pair.data.dig(0, :pairs, 0, :type)
       when :subject, :exam, :consultation
-        "Следующая пара в кабинете %{classroom}:\n%{discipline}\n%{teacher}" % (p pair.data.dig(0, :pairs, 0, :content))
+        "Следующая пара в кабинете %{classroom}:\n%{discipline}\n%{teacher}" %
+          (p pair.data.dig(0, :pairs, 0, :content))
       else next
       end
 
-      users.select { it.pair_sending }.map(&:id).each do |chat_id|
-        bot.api.send_message(chat_id:, text:)
-      end
+      logger.debug "Sending pair notification to #{users.size} users of group #{users.first.group_info[:group_name]}..."
+      users.map(&:id).each { |chat_id| bot.api.send_message(chat_id:, text:) }
     end
   end
 
