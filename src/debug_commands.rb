@@ -40,4 +40,8 @@ module DebugCommands
   def self.delete_start_timestamp(user:, **)
     user.statistics[:start] = nil
   end
+
+  def self.send_pair_notification(user:, bot:, **)
+    bot.send_pair_notification(Time.now, user: user)
+  end
 end

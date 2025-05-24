@@ -1,5 +1,6 @@
 require 'telegram/bot'
 require 'date'
+require 'rufus-scheduler'
 
 require_relative 'cache'
 require_relative 'debug_commands'
@@ -62,7 +63,8 @@ class RaspishikaBot
   MARKDOWN
 
   def initialize
-    @logger = MyLogger.new # Logger.new($stderr, level: Logger::DEBUG)
+    @logger = MyLogger.new
+    @scheduler = Rufus::Scheduler.new
     @parser = ScheduleParser.new(logger: @logger)
 
     @token = ENV['TELEGRAM_BOT_TOKEN']
@@ -82,11 +84,14 @@ class RaspishikaBot
     @dev_bot_thread = Thread.new(@dev_bot, &:run)
 
     @parser.initialize_browser_thread
+    sleep 1 until @parser.ready?
 
     Telegram::Bot::Client.run(@token) do |bot|
       @bot = bot
       @username = bot.api.get_me.username
-      logger.info "Bot's username: #{@username}"
+      logger.debug "Bot's username: #{@username}"
+
+      report "Bot started."
 
       bot.api.set_my_commands(
         commands: [
@@ -101,11 +106,8 @@ class RaspishikaBot
         ]
       )
 
-      sleep 1 until @parser.ready?
-
-      report "Bot started."
-
-      @sending_thread = Thread.new(self, &:sending_loop)
+      schedule_pair_sending
+      @sending_thread = Thread.new(self, &:daily_sending_loop)
 
       begin
         logger.info "Starting bot listen loop..."
@@ -147,8 +149,8 @@ class RaspishikaBot
     end
   end
 
-  def sending_loop
-    logger.info "Starting sending loop..."
+  def daily_sending_loop
+    logger.info "Starting daily sending loop..."
     last_sending_time = Time.now - 10*60
 
     while @run
@@ -176,6 +178,54 @@ class RaspishikaBot
       60.times do
         break unless @run
         sleep 1
+      end
+    end
+  end
+
+  def schedule_pair_sending
+    logger.info "Scheduling pair sending..."
+
+    ['8:00', '9:45', '11:30', '13:45', '15:30', '17:15', '19:00'].each do |time|
+      logger.debug "Scheduling sending for #{time}..."
+      time = Time.parse time
+
+      sending_time = time - 15 * 60
+      @scheduler.cron("#{sending_time.min} #{sending_time.hour} * * *") { send_pair_notification time }
+    end
+  end
+
+  def send_pair_notification time, user: nil
+    logger.info "Sending pair notification for #{time}..."
+
+    groups = if user
+      logger.debug "Sending pair notification for #{time} to #{user.id} with group #{user.group_info}..."
+      {[user.department, user.group] => [user]}
+    else
+      User.users.values.group_by { [it.department, it.group] }
+    end
+
+    groups.each do |(sid, gr), users|
+      next unless sid && gr
+
+      raw_schedule = Cache.fetch(:"schedule_#{sid}_#{gr}") do
+        @parser.fetch_schedule users.first.group_info
+      end
+      if raw_schedule.nil?
+        logger.error "Failed to fetch schedule for #{users.first.group_info}"
+        next
+      end
+
+      pair = Schedule.from_raw(raw_schedule).now(time:).pair(0)
+      next unless pair
+
+      text =  case pair.data.dig(0, :pairs, 0, :type)
+      when :subject, :exam, :consultation
+        "Следующая пара в кабинете %{classroom}:\n%{discipline}\n%{teacher}" % (p pair.data.dig(0, :pairs, 0, :content))
+      else next
+      end
+
+      users.select { it.pair_sending }.map(&:id).each do |chat_id|
+        bot.api.send_message(chat_id:, text:)
       end
     end
   end
@@ -591,12 +641,6 @@ class RaspishikaBot
   end
 
   def enable_pair_sending(message, user)
-    bot.api.send_message(
-      chat_id: message.chat.id,
-      text: "В разработке.",
-      reply_markup: user.id.to_i > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
-    )
-    return
     user.pair_sending = true
     user.state = :default
     bot.api.send_message(
@@ -607,12 +651,6 @@ class RaspishikaBot
   end
 
   def disable_pair_sending(message, user)
-    bot.api.send_message(
-      chat_id: message.chat.id,
-      text: "В разработке.",
-      reply_markup: user.id.to_i > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
-    )
-    return
     user.pair_sending = false
     user.state = :default
     bot.api.send_message(
