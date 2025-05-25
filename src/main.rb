@@ -1,3 +1,4 @@
+require 'concurrent'
 require 'telegram/bot'
 require 'date'
 require 'rufus-scheduler'
@@ -23,9 +24,11 @@ if ENV['TELEGRAM_BOT_TOKEN'].nil?
   quit
 end
 
-LONG_CACHE_TIME = 24 * 60 * 60 # 24 hours
 
 class RaspishikaBot
+  THEAD_POOL_SIZE = 20
+  LONG_CACHE_TIME = 24 * 60 * 60 # 24 hours
+
   DEFAULT_KEYBOARD = [
     ["Оставшиеся пары"],
     ["Завтра", "Неделя"],
@@ -66,12 +69,13 @@ class RaspishikaBot
     @logger = MyLogger.new
     @scheduler = Rufus::Scheduler.new
     @parser = ScheduleParser.new(logger: @logger)
+    @thread_pool = Concurrent::FixedThreadPool.new THEAD_POOL_SIZE
 
     @token = ENV['TELEGRAM_BOT_TOKEN']
     @run = true
     @dev_bot = RaspishikaDevBot.new logger: @logger
     @username = nil
-    
+
     ImageGenerator.logger = Cache.logger = User.logger = @logger
     User.restore
   end
@@ -136,11 +140,17 @@ class RaspishikaBot
   ensure
     report "Bot stopped."
     @run = false
+
     @user_backup_thread&.join
     User.backup
+
     @dev_bot_thread&.kill
     @sending_thread&.join
     @parser.stop_browser_thread
+
+    @thread_pool&.shutdown
+    @thread_pool&.wait_for_termination(30)
+    @thread_pool&.kill if @thread_pool.running?
   end
 
   def user_backup_loop
@@ -164,15 +174,19 @@ class RaspishikaBot
         it.daily_sending && Time.parse(it.daily_sending).between?(last_sending_time, current_time)
       end
 
-      users_to_send.each do
-        send_week_schedule(nil, it)
-      rescue => e
-        msg = "Error while sending daily schedule: #{e.detailed_message}"
-        backtrace = e.backtrace.join("\n")
-        logger.error msg
-        logger.debug backtrace
-        report(msg, backtrace:)
+      futures = users_to_send.map do |user|
+        Concurrent::Future.execute(executor: @thread_pool) do
+          send_week_schedule(nil, user)
+        rescue => e
+          msg = "Error while sending daily schedule: #{e.detailed_message}"
+          backtrace = e.backtrace.join("\n")
+          logger.error msg
+          logger.error backtrace
+          report(msg, backtrace:)
+        end
       end
+      futures.each(&:wait)
+
       if users_to_send.any?
         logger.debug "Daily sending for #{users_to_send.size} users took #{Time.now - current_time} seconds"
       end
@@ -211,36 +225,51 @@ class RaspishikaBot
     end
     logger.debug "Sending pair notification to #{groups.size} groups..."
 
-    groups.each do |(sid, gr), users|
-      next unless sid && gr
-      next if users.empty? # NOTE: Maybe it's useless line.
-
-      raw_schedule = Cache.fetch(:"schedule_#{sid}_#{gr}") do
-        @parser.fetch_schedule users.first.group_info
+    futures = groups.map do |(sid, gr), users|
+      Concurrent::Future.execute(executor: @thread_pool) do
+        send_pair_notification_for_group(sid:, gr:, users:, time:)
+      rescue => e
+        logger.error "Failed to send pair notification for group #{gr}: #{e.detailed_message}"
+        logger.error e.backtrace.join("\n")
       end
-      if raw_schedule.nil?
-        logger.error "Failed to fetch schedule for #{users.first.group_info}"
-        next
-      end
-
-      pair = Schedule.from_raw(raw_schedule).now(time:).pair(0)
-      next unless pair
-
-      text =  case pair.data.dig(0, :pairs, 0, :type)
-      when :subject, :exam, :consultation
-        "Следующая пара в кабинете %{classroom}:\n%{discipline}\n%{teacher}" %
-          pair.data.dig(0, :pairs, 0, :content)
-      else
-        logger.debug "No pairs left for the group"
-        next
-      end
-
-      logger.debug "Sending pair notification to #{users.size} users of group #{users.first.group_info[:group_name]}..."
-      users.map(&:id).each { |chat_id| bot.api.send_message(chat_id:, text:) }
     end
+    futures.each(&:wait)
   end
 
   private
+
+  def send_pair_notification_for_group(sid:, gr:, users:, time:)
+    return unless sid && gr
+    return if users.empty? # NOTE: Maybe it's useless line.
+
+    raw_schedule = Cache.fetch(:"schedule_#{sid}_#{gr}") do
+      @parser.fetch_schedule users.first.group_info
+    end
+    if raw_schedule.nil?
+      logger.error "Failed to fetch schedule for #{users.first.group_info}"
+      return
+    end
+
+    pair = Schedule.from_raw(raw_schedule).now(time:).pair(0)
+    return unless pair
+
+    text = case pair.data.dig(0, :pairs, 0, :type)
+    when :subject, :exam, :consultation
+      "Следующая пара в кабинете %{classroom}:\n%{discipline}\n%{teacher}" %
+        pair.data.dig(0, :pairs, 0, :content)
+    else
+      logger.debug "No pairs left for the group"
+      return
+    end
+
+    logger.debug "Sending pair notification to #{users.size} users of group #{users.first.group_info[:group_name]}..."
+    users.map(&:id).each do |chat_id|
+      bot.api.send_message(chat_id:, text:)
+    rescue => e
+      logger.error "Failed to send pair notification of group #{gr} to #{chat_id}: #{e.detailed_message}"
+      logger.error e.backtrace.join("\n\t")
+    end
+  end
 
   def report(*args, **kwargs)
     @dev_bot.report(*args, **kwargs)
