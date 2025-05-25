@@ -11,12 +11,12 @@ module Cache
 
   def self.fetch(key, expires_in: DEFAULT_CACHE_EXPIRATION, allow_nil: false, &block)
     logger&.debug "Fetching cache for: #{key.inspect}"
-    @mutex.synchronize do
-      if DEFAULT_CACHE_EXPIRATION.zero?
-        logger&.warn "Skipping caching because of environment configuration"
-        return block.call
-      end
+    if DEFAULT_CACHE_EXPIRATION.zero?
+      logger&.warn "Skipping caching because of environment configuration"
+      return block.call
+    end
 
+    @mutex.synchronize do
       entry = @data[key]
       if entry && (allow_nil || entry[:value]) && (expires_in.nil? || Time.now - entry[:timestamp] < expires_in)
         logger&.debug "Returning existing cache"
@@ -32,6 +32,4 @@ module Cache
   def self.clear
     @mutex.synchronize { @data.clear }
   end
-
-  # TODO: Maybe save cache for situations when I need to just restart bot for less than 5 minutes.
 end
