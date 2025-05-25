@@ -29,22 +29,24 @@ class Schedule
 
     private
 
-    def transform schedule
-      raise ArgumentError, "Schedule is empty or nil: #{schedule.inspect}" if schedule&.empty?
+    def transform raw_schedule
+      if raw_schedule&.empty?
+        raise ArgumentError, "Schedule is empty or nil: #{raw_schedule.inspect}"
+      end
 
-      days_count = schedule.first[:days].count
+      days_count = raw_schedule.first[:days].count
       days_schedule = Array.new(days_count) { { pairs: [] } }
 
-      schedule.first[:days].each_with_index do |day_info, day_index|
+      raw_schedule.first[:days].each_with_index do |day_info, day_index|
         days_schedule[day_index].merge! day_info.slice(:date, :weekday, :week_type)
       end
 
-      schedule.each do |time_slot|
+      raw_schedule.each do |time_slot|
         time_slot[:days].each_with_index do |day_info, day_index|
           days_schedule[day_index][:pairs] << {
             pair_number: time_slot[:pair_number],
             time_range: time_slot[:time_range],
-          }.merge(day_info.slice(:type, :replaced, :content))
+          }.merge(day_info.slice(:type, :title, :replaced, :content))
         end
       end
 
@@ -132,7 +134,6 @@ class Schedule
 
   def format
     @data.map do |day|
-      weekday = WEEKDAY_SHORTS[day[:weekday].downcase].upcase
       pairs = day[:pairs].map do |pair|
         next if pair[:type] == :empty
 
@@ -146,14 +147,25 @@ class Schedule
             pair[:content][:teacher]
           end
           "\n*#{pair[:content][:discipline]}*\n#{teacher}"
+
+        when :exam, :consultation
+          classroom = " | #{pair[:content][:classroom]}"
+          teacher = if (parts = pair[:content][:teacher].split).size == 3
+            "#{parts.first} #{parts[1][0]}.#{parts[2][0]}."
+          else
+            pair[:content][:teacher]
+          end
+          "\n_#{pair[:title]}_\n*#{pair[:content][:discipline]}*\n#{teacher}"
+
         when :event, :iga, :practice
+          # TODO: Format into single line message.
           " — *#{pair[:content]}*"
         end
 
-        "#{pair[:pair_number]} | #{pair[:time_range]}#{classroom}#{name}"
+        "#{pair[:pair_number]} | #{pair[:time_range]}#{classroom}#{name}" if name
       end.compact.join "\n\n"
 
-      "📅 #{weekday}, #{day[:date]}:\n\n#{pairs}"
+      "📅 #{day[:weekday]}, #{day[:date]}:\n\n#{pairs}"
     end.join("\n\n")
   end
 end
