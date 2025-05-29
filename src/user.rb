@@ -37,6 +37,9 @@ class User
       @users = data.map { |id, data| [id.to_s, new(id, **data)] }.to_h
       @users.each_value do |user|
         user.statistics[:start] = Time.parse user.statistics[:start] if user.statistics[:start]
+        user.statistics[:last_commands]&.each { it[:timestamp] = Time.parse it[:timestamp] }
+        user.statistics[:daily_sendings]&.each { it[:timestamp] = Time.parse it[:timestamp] }
+        user.statistics[:pair_sendings]&.each { it[:timestamp] = Time.parse it[:timestamp] }
       end
       logger&.info "Restored #{@users.size} users"
     rescue Errno::ENOENT, JSON::ParserError => e
@@ -66,6 +69,9 @@ class User
     @department_url = nil
 
     @statistics = statistics || {}
+    @statistics[:last_commands] ||= []
+    @statistics[:daily_sendings] ||= []
+    @statistics[:pair_sendings] ||= []
   end
   attr_accessor :id, :state,
     :group, :group_name, :department, :department_name,
@@ -88,5 +94,29 @@ class User
 
   def to_json(*)
     to_h.to_json
+  end
+
+  def push_command_usage command:, ok: true, timestamp: Time.now
+    User.logger&.debug "Pushing command usage for user #{id}: #{command}"
+    @statistics[:last_commands].tap do |last_commands|
+      last_commands << { command:, ok:, timestamp: }
+      last_commands.shift [0, last_commands.size - 100].max
+    end
+  end
+
+  def push_daily_sending_report conf_time:, process_time:, ok: true, timestamp: Time.now
+    User.logger&.debug "Pushing daily sending report for user #{id}: #{conf_time} #{process_time} #{ok}"
+    @statistics[:daily_sendings].tap do |daily_sendings|
+      daily_sendings << { conf_time:, process_time:, ok:, timestamp: }
+      daily_sendings.shift [0, daily_sendings.size - 100].max
+    end
+  end
+
+  def push_pair_sending_report process_time:, ok: true, timestamp: Time.now
+    User.logger&.debug "Pushing pair sending report for user #{id}: #{process_time} #{ok}"
+    @statistics[:pair_sendings].tap do |pair_sendings|
+      pair_sendings << { process_time:, ok:, timestamp: }
+      pair_sendings.shift [0, pair_sendings.size - 100].max
+    end
   end
 end

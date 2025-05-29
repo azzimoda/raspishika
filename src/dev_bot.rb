@@ -28,9 +28,9 @@ class RaspishikaDevBot
       bot.api.set_my_commands(
         commands: [
           {command: 'log', description: 'Get last log'},
-          {command: 'departments', description: 'Get departments statistics'},
+          {command: 'general_statistics', description: 'Get general statistics'},
           {command: 'groups', description: 'Get groups statistics'},
-          {command: 'chats', description: 'Get chats statistics'},
+          {command: 'departments', description: 'Get departments statistics'},
           {command: 'new_users', description: 'Get new users of a period (days)'},
           {command: 'daily_sending_statistics', description: 'Get daily sending statistics'},
           {command: 'pair_sending_statistics', description: 'Get pair sending statistics'},
@@ -82,9 +82,9 @@ class RaspishikaDevBot
     when ->(*) { @admin_chat_id.nil? } then return
     when %r(/log\s+(\d+)) then send_log message, lines: Regexp.last_match(1).to_i
     when '/log' then send_log message
+    when '/general_statistics' then send_general_statistics message
     when '/departments' then send_departments message
     when '/groups' then send_groups message
-    when '/chats' then send_chats message
     when '/daily_sending_statistics' then send_daily_sending_statistics message
     when '/pair_sending_statistics' then send_pair_sending_statistics message
     when '/new_users' then send_new_users message
@@ -95,6 +95,7 @@ class RaspishikaDevBot
     bot.api.send_message(
       chat_id: @admin_chat_id, text: "Unlandled error in `#handle_message`: #{e.detailed_message}"
     )
+    bot.api.send_message(chat_id: @admin_chat_id, text: "```\n#{e.backtrace.join("\n")}\n```", parse_mode: 'Markdown')
   end
 
   def send_log message, lines: 20
@@ -140,14 +141,56 @@ class RaspishikaDevBot
     bot.api.send_message(chat_id: message.chat.id, text:, parse_mode: 'Markdown')
   end
 
-  def send_chats message
-    private_chats = 0
-    group_chats = 0
-    User.users.each_value { it.id.to_i > 0 ? private_chats += 1 : group_chats += 1 }
+  def send_general_statistics message
+    total_chats = User.users.size
+    private_chats, group_chats = User.users.values
+      .group_by { it.id.to_i > 0 ? :private : :groups }
+      .values_at(:private, :groups).map(&:size)
+    total_groups, top_group = User.users.values
+      .select { |k, _| k }
+      .group_by(&:group_name)
+      .transform_values(&:size)
+      .then { [it.size, it.sort_by(&:last).last.first] }
+    total_departments, top_department = User.users
+      .select { |k, _| k }
+      .values.group_by(&:department_name)
+      .transform_values(&:size)
+      .then { [it.size, it.sort_by(&:last).last.first] }
+    new_users = User.users.values.count do |user|
+      user.statistics[:start].then { it && it >= Time.now - 24*60*60 }
+    end
+    total_command_used = User.users.values.map { it.statistics[:last_commands].size }.sum
+    schedule_command_used = User.users.values.map do |user|
+      user.statistics[:last_commands].then do |commands|
+        commands.count do |e|
+          text = e[:command].downcase.then do
+            if it.end_with?("@#{bot.api.get_me.username.downcase}")
+              it.match(/^(.*)@#{bot.api.get_me.username.downcase}$/).match(1)
+            else
+              it
+            end
+          end
+          p text
+          m = text =~ %r(^/left|/tomorrow|/week|#{LABELS[:left]}|#{LABELS[:tomorrow]}|#{LABELS[:week]}$)i
+          m && e[:timestamp] >= Time.now - 24*60*60
+        end
+      end
+    end.sum
 
     bot.api.send_message(
       chat_id: message.chat.id,
-      text: "Private chats: #{private_chats}; Group chats: #{group_chats}."
+      text: <<~MARKDOWN
+        Total chats: #{total_chats}
+        Private chats: #{private_chats} ; Group chats: #{group_chats}
+        Total groups: #{total_groups} ; Top group: #{top_group}
+        (/groups)
+        Total departments: #{total_departments} ; Top department: #{top_department}
+        (/departments)
+
+        LAST 24 HOURS:
+        New users: #{new_users} (/new_users)
+        Schedule commands used: #{schedule_command_used}/#{total_command_used}
+      MARKDOWN
     )
   end
 
@@ -156,7 +199,7 @@ class RaspishikaDevBot
       User.users.values
     else
       User.users.values.select do |user| 
-        user&.statistics[:start] && user.statistics[:start] >= Time.now - days * 24 * 60 * 60
+        user.statistics[:start] && user.statistics[:start] >= Time.now - days * 24 * 60 * 60
       end
     end
 

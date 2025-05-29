@@ -3,7 +3,7 @@ class RaspishikaBot
     bot.api.send_message(
       chat_id: message.chat.id,
       text: "Привет! Используй /set_group чтобы задать группу и кнопки ниже для других действий",
-      reply_markup: user.id.to_i > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
+      reply_markup: default_reply_markup(user.id)
     )
 
     unless user.statistics[:start]
@@ -19,111 +19,137 @@ class RaspishikaBot
     bot.api.send_message(
       chat_id: message.chat.id,
       text: HELP_MESSAGE,
-      reply_markup: user.id.to_i > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
+      reply_markup: default_reply_markup(user.id)
+    )
+  end
+
+  def stop(message, user)
+    User.delete user
+
+    bot.api.send_message(
+      chat_id: messag.chat.id,
+      text:
+        "Ваши данные были удалены, и Вы больше не будете получать рассылки от этого бота.\n" \
+        "Спасибо за использование бота!",
+      reply_markup: {remove_keyboard: true}.to_json
     )
   end
 
   def configure_group(message, user)
     departments = Cache.fetch(:departments, expires_in: LONG_CACHE_TIME) { parser.fetch_departments }
-    if departments&.any?
-      user.departments = departments.keys
-      user.state = :select_department
 
-      keyboard = [["Отмена"]] + departments.keys.each_slice(2).to_a
-      bot.api.send_message(
-        chat_id: user.id,
-        text: "Выбери отделение",
-        reply_markup: {
-          keyboard: keyboard,
-          resize_keyboard: true,
-          one_time_keyboard: true
-        }.to_json
-      )
-    else
+    unless departments&.any?
+      user.push_command_usage command: message.text, ok: false
+
       bot.api.send_message(
         chat_id: user.id,
         text: "Не удалось загрузить отделения",
-        reply_markup: user.id.to_i > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
+        reply_markup: default_reply_markup(user.id)
       )
+
+      return
     end
+
+    user.departments = departments.keys
+    user.state = :select_department
+
+    user.push_command_usage command: message.text, ok: true
+
+    keyboard = [["Отмена"]] + departments.keys.each_slice(2).to_a
+    bot.api.send_message(
+      chat_id: user.id,
+      text: "Выбери отделение",
+      reply_markup: {
+        keyboard: keyboard,
+        resize_keyboard: true,
+        one_time_keyboard: true
+      }.to_json
+    )
   end
 
   def select_department(message, user)
     departments = Cache.fetch(:departments, expires_in: LONG_CACHE_TIME) { parser.fetch_departments }
 
-    if departments&.key? message.text
-      groups = Cache.fetch(:"groups_#{message.text.downcase}", expires_in: LONG_CACHE_TIME) do
-        parser.fetch_groups departments[message.text]
-      end
-      if groups&.any?
-        user.department_url = departments[message.text]
-        user.department_name_temp = message.text
-        user.groups = groups
-        user.state = :select_group
-
-        keyboard = [["Отмена"]] + groups.keys.each_slice(2).to_a
-        bot.api.send_message(
-          chat_id: message.chat.id,
-          text: "Выбери группу",
-          reply_markup: {
-            keyboard: keyboard,
-            resize_keyboard: true,
-            one_time_keyboard: true
-          }.to_json
-        )
-      else
-        bot.api.send_message(
-          chat_id: message.chat.id,
-          text: "Не удалось загрузить группы для этого отделения",
-          reply_markup: user.id.to_i > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
-        )
-      end
-    else
+    unless departments&.key? message.text
       user.departments = []
       user.state = :default
+      user.push_command_usage command: message.text, ok: false
 
-      logger.warn "Cached departments differ from fetched"
       bot.api.send_message(
         chat_id: message.chat.id,
         text: "Не удалось загрузить отделение",
-        reply_markup: user.id.to_i > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
+        reply_markup: default_reply_markup(user.id)
       )
+
+      logger.warn "Cached departments differ from fetched"
       logger.warn "Reached code supposed to be unreachable!"
       msg = "User #{message.chat.id} (#{message.from.username}) tried to select department #{message.text} but it doesn't exist"
       logger.warn msg
       report msg
+      return
     end
-  end
 
-  def select_group(message, user)
-    if (group_info = user.groups[message.text])
-      user.department = group_info[:sid]
-      user.department_name = user.department_name_temp
-      user.group = group_info[:gr]
-      user.group_name = message.text
+    groups = Cache.fetch(:"groups_#{message.text.downcase}", expires_in: LONG_CACHE_TIME) do
+      parser.fetch_groups departments[message.text]
+    end
+    unless groups&.any?
+      user.push_command_usage command: message.text, ok: false
 
       bot.api.send_message(
         chat_id: message.chat.id,
-        text: "Теперь #{message.chat.id > 0 ? 'ты' : 'вы'} в группе #{message.text}",
-        reply_markup: user.id.to_i > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
+        text: "Не удалось загрузить группы для этого отделения",
+        reply_markup: default_reply_markup(user.id)
       )
-    else
+      return
+    end
+
+    user.department_url = departments[message.text]
+    user.department_name_temp = message.text
+    user.groups = groups
+    user.state = :select_group
+    user.push_command_usage command: message.text, ok: true
+
+    keyboard = [["Отмена"]] + groups.keys.each_slice(2).to_a
+    bot.api.send_message(
+      chat_id: message.chat.id,
+      text: "Выбери группу",
+      reply_markup: {keyboard: keyboard, resize_keyboard: true, one_time_keyboard: true}.to_json
+    )
+  end
+
+  def select_group(message, user)
+    group_info = user.groups[message.text]
+    unless group_info
       user.department = nil
       user.department_name = nil
+      user.push_command_usage command: message.text, ok: false
 
       bot.api.send_message(
         chat_id: message.chat.id,
         text: "Группа #{message.text} не найдена. Доступные группы:\n#{user.groups.keys.join(" , ")}",
-        reply_markup: user.id.to_i > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
+        reply_markup: default_reply_markup(user.id)
       )
+
       logger.warn "Reached code supposed to be unreachable!"
       msg = "User #{message.chat.id} (#{message.from.username}) tried to select group #{message.text} but it doesn't exist"
       logger.warn msg
       report msg
+      return
     end
 
+    user.department = group_info[:sid]
+    user.department_name = user.department_name_temp
+    user.group = group_info[:gr]
+    user.group_name = message.text
     user.groups = {}
     user.state = :default
+    user.push_command_usage command: message.text, ok: true
+
+    bot.api.send_message(
+      chat_id: message.chat.id,
+      text: "Теперь #{message.chat.id > 0 ? 'ты' : 'вы'} в группе #{message.text}",
+      reply_markup: default_reply_markup(user.id)
+    )
   end
 
   def send_week_schedule(_message, user)
@@ -157,17 +183,21 @@ class RaspishikaBot
     bot.api.send_photo(
       chat_id: user.id,
       photo: make_photo.call,
-      reply_markup: user.id.to_i > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
+      reply_markup: default_reply_markup(user.id)
     )
     unless schedule
+      user.push_command_usage command: _message.text, ok: false
+
       bot.api.send_message(
         chat_id: user.id,
         text:
           "Не удалось обновить расписание, *картинка может быть не актуальной!* Попробуйте позже.",
           parse_mode: 'Markdown',
-        reply_markup: user.id.to_i > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
+        reply_markup: default_reply_markup(user.id)
       )
       report("Failed to fetch schedule for #{user.group_info}", photo: make_photo.call)
+    else
+      user.push_command_usage command: _message.text, ok: true
     end
     bot.api.delete_message(chat_id: sent_message.chat.id, message_id: sent_message.message_id)
   end
@@ -206,11 +236,13 @@ class RaspishikaBot
       text = tomorrow_schedule.format
     end
 
+    user.push_command_usage command: _message.text
+
     bot.api.send_message(
       chat_id: user.id,
       text:,
       parse_mode: 'Markdown',
-      reply_markup: user.id.to_i > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
+      reply_markup: default_reply_markup(user.id)
     )
     bot.api.delete_message(chat_id: sent_message.chat.id, message_id: sent_message.message_id)
   end
@@ -232,10 +264,12 @@ class RaspishikaBot
     end
 
     if Date.today.sunday?
+      user.push_command_usage command: _message.text
+
       bot.api.send_message(
         chat_id: user.id,
         text: "Сегодня воскресенье, отдыхай!",
-        reply_markup: user.id.to_i > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json)
+        reply_markup: default_reply_markup(user.id))
       return
     end
 
@@ -255,11 +289,13 @@ class RaspishikaBot
       left_schedule.format
     end
 
+    user.push_command_usage command: _message.text
+
     bot.api.send_message(
       chat_id: user.id,
       text:,
       parse_mode: 'Markdown',
-      reply_markup: user.id.to_i > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
+      reply_markup: default_reply_markup(user.id)
     )
     bot.api.delete_message(chat_id: sent_message.chat.id, message_id: sent_message.message_id)
   end
@@ -280,6 +316,8 @@ class RaspishikaBot
       return configure_group(_message, user)
     end
 
+    user.push_command_usage command: message.text
+
     keyboard = [
       ["Отмена"],
       ["Ежедневная рассылка", "#{user.pair_sending ? 'Выкл.' : 'Вкл.'} рассылку перед парами"]
@@ -293,6 +331,9 @@ class RaspishikaBot
   end
 
   def configure_daily_sending(message, user)
+    user.state = :configure_daily_sending
+    user.push_command_usage command: message.text
+
     current_configuration = user.daily_sending ? " (сейчас: `#{user.daily_sending}`)" : ""
     bot.api.send_message(
       chat_id: message.chat.id,
@@ -300,48 +341,55 @@ class RaspishikaBot
       parse_mode: 'Markdown',
       reply_markup: {keyboard: [["Отмена"], ["Отключить"]], resize_keyboard: true, one_time_keyboard: true}.to_json
     )
-    user.state = :configure_daily_sending
   end
 
   def set_daily_sending(message, user)
     fomratted_time = Time.parse(message.text).strftime('%H:%M')
     user.daily_sending = fomratted_time
     user.state = :default
+    user.push_command_usage command: message.text
+
     bot.api.send_message(
       chat_id: message.chat.id,
       text: "Ежедневная рассылка настроена на `#{fomratted_time}`",
       parse_mode: 'Markdown',
-      reply_markup: user.id.to_i > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
+      reply_markup: default_reply_markup(user.id)
     )
   end
 
   def disable_daily_sending(message, user)
     user.daily_sending = nil
     user.state = :default
+    user.push_command_usage command: message.text
+
     bot.api.send_message(
       chat_id: message.chat.id,
       text: "Ежедневная рассылка отключена",
-      reply_markup: user.id.to_i > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
+      reply_markup: default_reply_markup(user.id)
     )
   end
 
   def enable_pair_sending(message, user)
     user.pair_sending = true
     user.state = :default
+    user.push_command_usage command: message.text
+
     bot.api.send_message(
       chat_id: message.chat.id,
       text: "Рассылкка перед каждой парой включена",
-      reply_markup: user.id.to_i > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
+      reply_markup: default_reply_markup(user.id)
     )
   end
 
   def disable_pair_sending(message, user)
     user.pair_sending = false
     user.state = :default
+    user.push_command_usage command: message.text
+
     bot.api.send_message(
       chat_id: message.chat.id,
       text: "Рассылкка перед каждой парой выключена",
-      reply_markup: user.id.to_i > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
+      reply_markup: default_reply_markup(user.id)
     )
   end
 
@@ -355,7 +403,7 @@ class RaspishikaBot
       bot.api.send_message(
         chat_id: message.chat.id,
         text: "Тест `#{debug_command_name}` не найден.\n\nДоступные тесты: #{DebugCommands.methods.join(', ')}",
-        reply_markup: user.id.to_i > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
+        reply_markup: default_reply_markup(user.id)
       )
       return
     end
@@ -369,15 +417,19 @@ class RaspishikaBot
       bot.api.send_message(
         chat_id: message.chat.id,
         text: "Нечего отменять",
-        reply_markup: user.id.to_i > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
+        reply_markup: default_reply_markup(user.id)
       )
     else
       user.state = :default
       bot.api.send_message(
         chat_id: message.chat.id,
         text: "Действие отменено",
-        reply_markup: user.id.to_i > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
+        reply_markup: default_reply_markup(user.id)
       )
     end
+  end
+
+  def default_reply_markup id
+    id.to_s.to_i > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
   end
 end

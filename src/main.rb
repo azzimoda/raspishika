@@ -26,14 +26,22 @@ if ENV['TELEGRAM_BOT_TOKEN'].nil?
   quit
 end
 
+LABELS = {
+  left: "Оставшиеся пары",
+  tomorrow: "Завтра",
+  week: "Неделя",
+  select_group: "Выбрать группу",
+  configure_sending: "Настроить рассылку"
+}
+
 class RaspishikaBot
   THEAD_POOL_SIZE = 20
   LONG_CACHE_TIME = 24 * 60 * 60 # 24 hours
 
   DEFAULT_KEYBOARD = [
-    ["Оставшиеся пары"],
-    ["Завтра", "Неделя"],
-    ["Выбрать группу", "Настроить рассылку"],
+    [LABELS[:left]],
+    [LABELS[:tomorrow], LABELS[:week]],
+    [LABELS[:select_group], LABELS[:configure_sending]],
   ]
   if ENV["DEBUG_CM"]
     DEFAULT_KEYBOARD.push(
@@ -58,6 +66,7 @@ class RaspishikaBot
     {command: 'pair_sending_off', description: 'Выключить рассылку перед парами'},
     {command: 'set_group', description: 'Выбрать группу'},
     {command: 'cancel', description: 'Отменить действие'},
+    {command: 'stop', description: 'Остановить бота и удалить данные о себе'}
     {command: 'help', description: 'Помощь'},
     {command: 'start', description: 'Запуск бота'},
   ]
@@ -77,6 +86,7 @@ class RaspishikaBot
   - /pair_sending_off — Выключить рассылку перед парами
   - /set_group — Выбрать группу
   - /cancel — Отменить текущее действие
+  - /stop — Остановить бота и удалить данные о себе
 
   Вы также можете использовать кнопки клавиатуры для быстрого доступа к основным функциям.
   MARKDOWN
@@ -95,7 +105,7 @@ class RaspishikaBot
     ImageGenerator.logger = Cache.logger = User.logger = @logger
     User.restore
   end
-  attr_accessor :bot, :logger, :parser
+  attr_accessor :bot, :logger, :parser, :username
 
   def run
     logger.info "Starting bot..."
@@ -177,8 +187,13 @@ class RaspishikaBot
 
       futures = users_to_send.map do |user|
         Concurrent::Future.execute(executor: @thread_pool) do
+          start_time = Time.now
           send_week_schedule(nil, user)
+          user.push_daily_sending_report(
+            conf_time: it.daily_sending, process_time: Time.now - start_time, ok: true)
         rescue => e
+          user.push_daily_sending_report(
+            conf_time: it.daily_sending, process_time: Time.now - start_time, ok: false)
           msg = "Error while sending daily schedule: #{e.detailed_message}"
           backtrace = e.backtrace.join("\n")
           logger.error msg
@@ -215,6 +230,8 @@ class RaspishikaBot
     end
   end
 
+  private
+
   def send_pair_notification time, user: nil
     logger.info "Sending pair notification for #{time}..."
 
@@ -237,8 +254,6 @@ class RaspishikaBot
     futures.each(&:wait)
   end
 
-  private
-
   def send_pair_notification_for_group(sid:, gr:, users:, time:)
     return unless sid && gr
     return if users.empty? # NOTE: Maybe it's useless line.
@@ -251,7 +266,7 @@ class RaspishikaBot
       return
     end
 
-    pair = Schedule.from_raw(raw_schedule).now(time:).pair(0)
+    pair = Schedule.from_raw(raw_schedule).now(time:)&.pair(0)
     return unless pair
 
     text = case pair.data.dig(0, :pairs, 0, :type)
@@ -311,15 +326,15 @@ class RaspishikaBot
       case text
       when '/start' then start_message message, user
       when '/help' then help_message message, user
-      when '/set_group', 'выбрать группу' then configure_group message, user
+      when '/set_group', LABELS[:select_group].downcase then configure_group message, user
       when ->(t) { user.state == :select_department && user.departments.map(&:downcase).include?(t) }
         select_department message, user
       when ->(t) { user.groups.keys.map(&:downcase).include?(t) }
         select_group message, user
-      when '/week', 'неделя' then send_week_schedule message, user
-      when '/tomorrow', 'завтра' then send_tomorrow_schedule message, user
-      when '/left', 'оставшиеся пары' then send_left_schedule message, user
-      when '/configure_sending', 'настроить рассылку' then configure_sending message, user
+      when '/week', LABELS[:week].downcase then send_week_schedule message, user
+      when '/tomorrow', LABELS[:tomorrow].downcase then send_tomorrow_schedule message, user
+      when '/left', LABELS[:left].downcase then send_left_schedule message, user
+      when '/configure_sending', LABELS[:configure_sending].downcase then configure_sending message, user
       when '/configure_daily_sending', 'ежедневная рассылка' then configure_daily_sending message, user
       when %r(^\d{1,2}:\d{2}$)
         if (message.text =~ %r(^\d{1,2}:\d{2}$) && Time.parse(message.text) rescue false)
