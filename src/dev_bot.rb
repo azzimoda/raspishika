@@ -170,7 +170,6 @@ class RaspishikaDevBot
               it
             end
           end
-          p text
           m = text =~ %r(^/left|/tomorrow|/week|#{LABELS[:left]}|#{LABELS[:tomorrow]}|#{LABELS[:week]}$)i
           m && e[:timestamp] >= Time.now - 24*60*60
         end
