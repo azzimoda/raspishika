@@ -66,7 +66,7 @@ class RaspishikaBot
     {command: 'pair_sending_off', description: 'Выключить рассылку перед парами'},
     {command: 'set_group', description: 'Выбрать группу'},
     {command: 'cancel', description: 'Отменить действие'},
-    {command: 'stop', description: 'Остановить бота и удалить данные о себе'}
+    {command: 'stop', description: 'Остановить бота и удалить данные о себе'},
     {command: 'help', description: 'Помощь'},
     {command: 'start', description: 'Запуск бота'},
   ]
