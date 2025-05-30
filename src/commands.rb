@@ -316,7 +316,7 @@ class RaspishikaBot
       return configure_group(_message, user)
     end
 
-    user.push_command_usage command: message.text
+    user.push_command_usage command: _message.text
 
     keyboard = [
       ["Отмена"],
