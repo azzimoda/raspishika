@@ -259,18 +259,21 @@ class RaspishikaDevBot
         statistics[:new_users] << user
       end
 
-      Cache.fetch(:"command_usage_statistics_#{user.id}", expires_in: 10*60, allow_nil: true) do
-        [statistics[:command_usages], user.statistics[:last_commands]].tap do |stats, usages|
-          stats[:week] = count_commands usages, ['/week', LABELS[:week]] # %r(^/week|#{LABELS[:week]}$)i
-          stats[:tomorrow] = count_commands usages, ['/tomorrow', LABELS[:tomorrow]] # %r(^/tomorrow|#{LABELS[:tomorrow]}$)i
-          stats[:left] = count_commands usages, ['/left', LABELS[:left]] # %r(^/left|#{LABELS[:left]}$)i
-          stats[:config_group] = count_commands usages, ['/set_group', LABELS[:select_group]] # %r(^/set_group|#{LABELS[:select_group]}$)i
+      commands_statistics = Cache.fetch(:"command_usage_statistics_#{user.id}", expires_in: 10*60) do
+        command_statistcs = {week: [], tomorrow: [], left: [], config_group: [], config_sending: []}
+        [command_statistcs, user.statistics[:last_commands]].tap do |stats, usages|
+          stats[:week] = count_commands usages, ['/week', LABELS[:week]]
+          stats[:tomorrow] = count_commands usages, ['/tomorrow', LABELS[:tomorrow]]
+          stats[:left] = count_commands usages, ['/left', LABELS[:left]]
+          stats[:config_group] = count_commands usages, ['/set_group', LABELS[:select_group]]
           stats[:config_sending] =
-            count_commands usages, ['/configure_sending', LABELS[:configure_sending]] # %r(^/configure_sending|#{LABELS[:configure_sending]}$)i
+            count_commands usages, ['/configure_sending', LABELS[:configure_sending]]
         end
 
-        nil
+        command_statistcs
       end
+
+      statistics[:command_usages].each { |k, v| v.push(*commands_statistics[k]) }
     end
 
     logger.debug "Statistics collection took #{Time.now - start_time} seconds"
