@@ -298,7 +298,7 @@ class RaspishikaDevBot
       end
 
       commands_statistics = Cache
-        .fetch(:"command_usage_statistics_#{user.id}", expires_in: cache ? 10*60 : 0) do
+        .fetch(:"command_usage_statistics_#{user.id}", expires_in: (cache ? 10*60 : 0), log: false) do
           user.statistics[:last_commands].group_by do |usage|
             case usage[:command].downcase.then do
               it.end_with?("@#{bot_name}") ? it.match(/^(.*)@#{bot_name}$/).match(1) : it
