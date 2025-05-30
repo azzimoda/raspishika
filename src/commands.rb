@@ -320,7 +320,7 @@ class RaspishikaBot
 
     keyboard = [
       ["Отмена"],
-      ["Ежедневная рассылка", "#{user.pair_sending ? 'Выкл.' : 'Вкл.'} рассылку перед парами"]
+      ["Ежедневная рассылка", user.pair_sending ? LABELS[:pair_sending_off] : LABELS[:pair_sending_on]]
     ]
     bot.api.send_message(
       chat_id: user.id,

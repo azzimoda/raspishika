@@ -31,7 +31,10 @@ LABELS = {
   tomorrow: "Завтра",
   week: "Неделя",
   select_group: "Выбрать группу",
-  configure_sending: "Настроить рассылку"
+  configure_sending: "Настроить рассылку",
+  daily_sending: "Ежедневная рассылка",
+  pair_sending_on: "Вкл. рассылку перед парами",
+  pair_sending_off: "Выкл. рассылку перед парами",
 }
 
 class RaspishikaBot
@@ -346,9 +349,9 @@ class RaspishikaBot
           )
         end
       when '/daily_sending_off', 'отключить' then disable_daily_sending message, user
-      when '/pair_sending_on', 'вкл. рассылку перед парами'
+      when '/pair_sending_on', LABELS[:pair_sending_on].downcase
         enable_pair_sending message, user
-      when '/pair_sending_off', 'выкл. рассылку перед парами'
+      when '/pair_sending_off', LABELS[:pair_sending_off].downcase
         disable_pair_sending message, user
       when '/cancel', 'отмена' then cancel_action message, user
       when %r(^/debug\s+\w+$) then debug_command message, user

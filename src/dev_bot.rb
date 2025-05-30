@@ -28,12 +28,13 @@ class RaspishikaDevBot
       bot.api.set_my_commands(
         commands: [
           {command: 'log', description: 'Get last log'},
-          {command: 'general_statistics', description: 'Get general statistics'},
+          {command: 'general', description: 'Get general statistics'},
           {command: 'groups', description: 'Get groups statistics'},
           {command: 'departments', description: 'Get departments statistics'},
-          {command: 'new_users', description: 'Get new users of a period (days)'},
-          {command: 'daily_sending_statistics', description: 'Get daily sending statistics'},
-          {command: 'pair_sending_statistics', description: 'Get pair sending statistics'},
+          {command: 'new_users', description: 'Get new users for last N=1 hours'},
+          {command: 'commands', description: 'Get commands usage statistics for last 24 hours'},
+          {command: 'configuration', description: 'Get configuration statistics'},
+          {command: 'update_statistics_cache', description: 'Update statistics cache'},
           {command: 'help', description: 'No help'},
           {command: 'start', description: 'Start'},
         ]
@@ -82,11 +83,12 @@ class RaspishikaDevBot
     when ->(*) { @admin_chat_id.nil? } then return
     when %r(/log\s+(\d+)) then send_log message, lines: Regexp.last_match(1).to_i
     when '/log' then send_log message
-    when '/general_statistics' then send_general_statistics message
+    when '/general' then send_general_statistics message
     when '/departments' then send_departments message
     when '/groups' then send_groups message
-    when '/daily_sending_statistics' then send_daily_sending_statistics message
-    when '/pair_sending_statistics' then send_pair_sending_statistics message
+    when '/configuration' then send_configuration_statistics message
+    when '/commands' then send_commands_statistics message
+    when '/update_statistics_cache' then collect_statistics cache: false
     when '/new_users' then send_new_users message
     when %r(/new_users\s+(\d+)) then send_new_users message, days: Regexp.last_match(1).to_i
     else bot.api.send_message(chat_id: message.chat.id, text: "Huh?")
@@ -137,7 +139,7 @@ class RaspishikaDevBot
       .transform_values(&:size)
       .sort_by(&:last)
       .reverse
-    text = groups.map { '`%14s (%2d users)`' % it }.join("\n")
+    text = groups.map { '`%15s (%2d users)`' % it }.join("\n")
     bot.api.send_message(chat_id: message.chat.id, text:, parse_mode: 'Markdown')
   end
 
@@ -148,32 +150,38 @@ class RaspishikaDevBot
     total_command_used = statistics[:command_usages].values.map(&:size).sum
     schedule_command_used = statistics[:command_usages].slice(:week, :tomorrow, :left)
       .values.map(&:size).sum
-    top_groups = statistics[:groups].transform_values(&:size).sort_by(&:last)
-      .reverse.first(3).map { |name, count| "#{name} (#{count})" }
-    top_departments = statistics[:departments].transform_values(&:size).sort_by(&:last)
-      .reverse.first(3).map { |name, count| "#{name} (#{count})" }
+    top_groups = statistics[:groups].select { it }.transform_values(&:size)
+      .sort_by(&:last).reverse.first(3).map { |name, count| "#{just_group name} (#{count})" }
+    top_departments = statistics[:departments].select { it }.transform_values(&:size)
+      .sort_by(&:last).reverse.first(3).map { |name, count| "#{name} (#{count})" }
 
-    bot.api.send_message(
-      chat_id: message.chat.id,
-      text: <<~MARKDOWN
-        Total chats: #{total_chats}
-        Private chats: #{statistics[:private_chats].size}
-        Group chats: #{statistics[:group_chats].size}
+    text = <<~MARKDOWN
+      GENERAL
 
-        Total groups: #{statistics[:groups].size}
-        Top group: #{top_groups.join ', '}
-        (/groups)
+      Total chats: #{total_chats}
+      Private chats: #{statistics[:private_chats].size}
+      Group chats: #{statistics[:group_chats].size}
 
-        Total departments: #{statistics[:departments].size}
-        Top department by group: #{top_departments.join ', '}
-        (/departments)
+      Total groups: #{statistics[:groups].size}
+      Top 3 groups by students:
+      #{top_groups.join "\n"}
+      (/groups)
 
-        LAST 24 HOURS
+      Total departments: #{statistics[:departments].size}
+      Top 3 departments by groups:
+      #{top_departments.join "\n"}
+      (/departments)
 
-        New users: #{statistics[:new_users].size} (/new_users)
-        Schedule commands used: #{schedule_command_used}/#{total_command_used}
-      MARKDOWN
-    )
+      LAST 24 HOURS
+
+      New users: #{statistics[:new_users].size}
+      (/new_users)
+
+      Total commands used: #{total_command_used}
+      Schedule commands used: #{schedule_command_used}
+      (/commands)
+    MARKDOWN
+    bot.api.send_message(chat_id: message.chat.id, text:)
   end
 
   def send_new_users(message, days: 1)
@@ -194,48 +202,78 @@ class RaspishikaDevBot
       ]
     end.join("\n\n")
 
-    if text.strip.empty?
-      bot.api.send_message(chat_id: message.chat.id, text: "No new users for the period.")
-    else
-      bot.api.send_message(chat_id: message.chat.id, text:, parse_mode: 'Markdown')
-    end
-  end
-
-  def send_daily_sending_statistics message
-    times = User.users.values.group_by(&:daily_sending)
-      .transform_keys(&:to_s)
-      .transform_values { it.group_by(&:group_name).then { [it.size, it.values.sum(&:size)] } }
-      .sort_by(&:first)
-    text = times.map { |time, (groups, users)|
-      '`%5s (%2d groups, %2d users)`' % [time, groups, users]
-    }.join("\n")
+    text = "No new users for the period." if text.strip.empty?
     bot.api.send_message(chat_id: message.chat.id, text:, parse_mode: 'Markdown')
   end
 
-  def send_pair_sending_statistics message
-    states = User.users.values.group_by(&:pair_sending)
-      .transform_keys { it ? 'on' : 'off' }
-      .transform_values { it.group_by(&:group_name).then { [it.size, it.values.sum(&:size)] } }
-    text = states.map do |state, (groups, users)|
-      "`%3s (%2d groups, %2d users)`" % [state, groups, users]
+  def send_configuration_statistics message
+    statistics = collect_statistics
+
+    daily_sending = statistics[:daily_sending_configuration].map do |time, users|
+      groups = users.map(&:group_name).uniq.size
+      "`%5s => %2s groups, %2s users`" % [time ? time : 'off', groups, users.size]
     end.join("\n")
+    pair_sending = statistics[:pair_sending_configuration].map do |state, users|
+      groups = users.map(&:group_name).uniq.size
+      "`%5s => %2s groups, %2s users`" % [state ? 'on' : 'off', groups, users.size]
+    end.join("\n")
+
+    text = <<~MARKDOWN
+      Pair sending configurations:
+
+      #{pair_sending}
+
+      Daily sending configurations:
+
+      #{daily_sending}
+    MARKDOWN
     bot.api.send_message(chat_id: message.chat.id, text:, parse_mode: 'Markdown')
   end
 
-  def collect_statistics
+  def send_commands_statistics message
+    statistics = collect_statistics
+
+    text = <<~MARKDOWN
+      `
+      /week                    => #{statistics[:command_usages][:week].size}
+      /tomorrow                => #{statistics[:command_usages][:tomorrow].size}
+      /left                    => #{statistics[:command_usages][:left].size}
+      /set_group               => #{statistics[:command_usages][:config_group].size}
+      /configure_sending       => #{statistics[:command_usages][:config_sending].size}
+      /configure_daily_sending => #{statistics[:command_usages][:daily_sending].size}
+      /pair_sending_on         => #{statistics[:command_usages][:pair_sending_on].size}
+      /pair_sending_off        => #{statistics[:command_usages][:pair_sending_off].size}
+      [other]                  => #{statistics[:command_usages][:other].size}
+      `
+    MARKDOWN
+    bot.api.send_message(chat_id: message.chat.id, text:, parse_mode: 'Markdown')
+  end
+
+  def collect_statistics cache: true
     logger.info "Collecting statistics..."
     start_time = Time.now
 
     statistics = {
       private_chats: [],
-      group_chats: [],
-      groups: {},
-      departments: {},
+      group_chats: [], # 
+      groups: {}, # group => chats
+      departments: {}, # department => groups
       new_users: [],
-      daily_sending_configuration: {},
-      pair_sending_configuration: {},
-      command_usages: {week: [], tomorrow: [], left: [], config_group: [], config_sending: []}
+      daily_sending_configuration: {}, # time => chats
+      pair_sending_configuration: {}, # state(nil,false,true) => chats
+      command_usages: {
+        week: [],
+        tomorrow: [],
+        left: [],
+        config_group: [],
+        config_sending: [],
+        daily_sending: [],
+        pair_sending_on: [],
+        pair_sending_off: [],
+        other: []
+      }
     }
+    bot_name = bot.api.get_me.username.downcase
     User.users.values.each do |user|
       if user.id.to_i > 0
         statistics[:private_chats] << user
@@ -259,19 +297,24 @@ class RaspishikaDevBot
         statistics[:new_users] << user
       end
 
-      commands_statistics = Cache.fetch(:"command_usage_statistics_#{user.id}", expires_in: 10*60) do
-        command_statistcs = {week: [], tomorrow: [], left: [], config_group: [], config_sending: []}
-        [command_statistcs, user.statistics[:last_commands]].tap do |stats, usages|
-          stats[:week] = count_commands usages, ['/week', LABELS[:week]]
-          stats[:tomorrow] = count_commands usages, ['/tomorrow', LABELS[:tomorrow]]
-          stats[:left] = count_commands usages, ['/left', LABELS[:left]]
-          stats[:config_group] = count_commands usages, ['/set_group', LABELS[:select_group]]
-          stats[:config_sending] =
-            count_commands usages, ['/configure_sending', LABELS[:configure_sending]]
+      commands_statistics = Cache
+        .fetch(:"command_usage_statistics_#{user.id}", expires_in: cache ? 10*60 : 0) do
+          user.statistics[:last_commands].group_by do |usage|
+            case usage[:command].downcase.then do
+              it.end_with?("@#{bot_name}") ? it.match(/^(.*)@#{bot_name}$/).match(1) : it
+            end
+            when '/week', LABELS[:week].downcase then :week
+            when '/tomorrow', LABELS[:tomorrow].downcase then :tomorrow
+            when '/left', LABELS[:left].downcase then :left
+            when '/set_group', LABELS[:select_group].downcase then :config_group
+            when '/configure_sending', LABELS[:configure_sending].downcase then :config_sending
+            when '/configure_daily_sending', LABELS[:daily_sending].downcase then :daily_sending
+            when '/pair_sending_on', LABELS[:pair_sending_on].downcase then :pair_sending_on
+            when '/pair_sending_off', LABELS[:pair_sending_off].downcase then :pair_sending_off
+            else :other
+            end
+          end
         end
-
-        command_statistcs
-      end
 
       statistics[:command_usages].each { |k, v| v.push(*commands_statistics[k]) }
     end
@@ -280,23 +323,6 @@ class RaspishikaDevBot
 
     statistics
   end
-
-  def count_commands commands, pattern
-    commands.count do |e|
-      text = e[:command].downcase.then do
-        if it.end_with?("@#{bot.api.get_me.username.downcase}")
-          it.match(/^(.*)@#{bot.api.get_me.username.downcase}$/).match(1)
-        else
-          it
-        end
-      end
-      if pattern.is_a? Regexp
-        text =~ pattern
-      else
-        pattern.any? { it.downcase == text }
-      end && e[:timestamp] >= Time.now - 24*60*60
-    end
-  end
 end
 
 def just_group group
@@ -304,7 +330,7 @@ def just_group group
 
   if group =~ /^(\S+)-(\d+)-\((\d+)\)-(\d+)$/
     prefix, year, num, suffix = $1, $2, $3, $4
-    "#{prefix.ljust(4)}-#{year}-(%2d)-#{suffix}" % num.to_i
+    "#{prefix.ljust(5)}-#{year}-(%2d)-#{suffix}" % num.to_i
   else group
   end
 end
