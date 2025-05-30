@@ -149,9 +149,9 @@ class RaspishikaDevBot
     schedule_command_used = statistics[:command_usages].slice(:week, :tomorrow, :left)
       .values.map(&:size).sum
     top_groups = statistics[:groups].transform_values(&:size).sort_by(&:last)
-      .reverse.last(3).map { |name, count| "#{name} (#{count})" }
+      .reverse.first(3).map { |name, count| "#{name} (#{count})" }
     top_departments = statistics[:departments].transform_values(&:size).sort_by(&:last)
-      .reverse.last(3).map { |name, count| "#{name} (#{count})" }
+      .reverse.first(3).map { |name, count| "#{name} (#{count})" }
 
     bot.api.send_message(
       chat_id: message.chat.id,
