@@ -142,52 +142,35 @@ class RaspishikaDevBot
   end
 
   def send_general_statistics message
-    total_chats = User.users.size
-    private_chats, group_chats = User.users.values
-      .group_by { it.id.to_i > 0 ? :private : :groups }
-      .values_at(:private, :groups).map(&:size)
-    total_groups, top_group = User.users.values
-      .select { |k, _| k }
-      .group_by(&:group_name)
-      .transform_values(&:size)
-      .then { [it.size, it.sort_by(&:last).last.first] }
-    total_departments, top_department = User.users
-      .select { |k, _| k }
-      .values.group_by(&:department_name)
-      .transform_values(&:size)
-      .then { [it.size, it.sort_by(&:last).last.first] }
-    new_users = User.users.values.count do |user|
-      user.statistics[:start].then { it && it >= Time.now - 24*60*60 }
-    end
-    total_command_used = User.users.values.map { it.statistics[:last_commands].size }.sum
-    schedule_command_used = User.users.values.map do |user|
-      user.statistics[:last_commands].then do |commands|
-        commands.count do |e|
-          text = e[:command].downcase.then do
-            if it.end_with?("@#{bot.api.get_me.username.downcase}")
-              it.match(/^(.*)@#{bot.api.get_me.username.downcase}$/).match(1)
-            else
-              it
-            end
-          end
-          m = text =~ %r(^/left|/tomorrow|/week|#{LABELS[:left]}|#{LABELS[:tomorrow]}|#{LABELS[:week]}$)i
-          m && e[:timestamp] >= Time.now - 24*60*60
-        end
-      end
-    end.sum
+    statistics = collect_statistics
+
+    total_chats = statistics[:private_chats].size + statistics[:group_chats].size
+    total_command_used = statistics[:command_usages].values.map(&:size).sum
+    schedule_command_used = statistics[:command_usages].slice(:week, :tomorrow, :left)
+      .values.map(&:size).sum
+    top_groups = statistics[:groups].transform_values(&:size).sort_by(&:last)
+      .reverse.last(3).map { |name, count| "#{name} (#{count})" }
+    top_departments = statistics[:departments].transform_values(&:size).sort_by(&:last)
+      .reverse.last(3).map { |name, count| "#{name} (#{count})" }
 
     bot.api.send_message(
       chat_id: message.chat.id,
       text: <<~MARKDOWN
         Total chats: #{total_chats}
-        Private chats: #{private_chats} ; Group chats: #{group_chats}
-        Total groups: #{total_groups} ; Top group: #{top_group}
+        Private chats: #{statistics[:private_chats].size}
+        Group chats: #{statistics[:group_chats].size}
+
+        Total groups: #{statistics[:groups].size}
+        Top group: #{top_groups.join ', '}
         (/groups)
-        Total departments: #{total_departments} ; Top department: #{top_department}
+
+        Total departments: #{statistics[:departments].size}
+        Top department by group: #{top_departments.join ', '}
         (/departments)
 
-        LAST 24 HOURS:
-        New users: #{new_users} (/new_users)
+        LAST 24 HOURS
+
+        New users: #{statistics[:new_users].size} (/new_users)
         Schedule commands used: #{schedule_command_used}/#{total_command_used}
       MARKDOWN
     )
@@ -238,6 +221,79 @@ class RaspishikaDevBot
     end.join("\n")
     bot.api.send_message(chat_id: message.chat.id, text:, parse_mode: 'Markdown')
   end
+
+  def collect_statistics
+    logger.info "Collecting statistics..."
+    start_time = Time.now
+
+    statistics = {
+      private_chats: [],
+      group_chats: [],
+      groups: {},
+      departments: {},
+      new_users: [],
+      daily_sending_configuration: {},
+      pair_sending_configuration: {},
+      command_usages: {week: [], tomorrow: [], left: [], config_group: [], config_sending: []}
+    }
+    User.users.values.each do |user|
+      if user.id.to_i > 0
+        statistics[:private_chats] << user
+      else
+        statistics[:group_chats] << user
+      end
+
+      statistics[:groups][user.group_name] ||= []
+      statistics[:groups][user.group_name] << user
+
+      statistics[:departments][user.department_name] ||= Set.new
+      statistics[:departments][user.department_name] << user.group_name
+
+      statistics[:daily_sending_configuration][user.daily_sending] ||= []
+      statistics[:daily_sending_configuration][user.daily_sending] << user
+
+      statistics[:pair_sending_configuration][user.pair_sending] ||= []
+      statistics[:pair_sending_configuration][user.pair_sending] << user
+
+      if user.statistics[:start].then { it && it >= Time.now - 24*60*60 }
+        statistics[:new_users] << user
+      end
+
+      Cache.fetch(:"command_usage_statistics_#{user.id}", expires_in: 10*60, allow_nil: true) do
+        [statistics[:command_usages], user.statistics[:last_commands]].tap do |stats, usages|
+          stats[:week] = count_commands usages, ['/week', LABELS[:week]] # %r(^/week|#{LABELS[:week]}$)i
+          stats[:tomorrow] = count_commands usages, ['/tomorrow', LABELS[:tomorrow]] # %r(^/tomorrow|#{LABELS[:tomorrow]}$)i
+          stats[:left] = count_commands usages, ['/left', LABELS[:left]] # %r(^/left|#{LABELS[:left]}$)i
+          stats[:config_group] = count_commands usages, ['/set_group', LABELS[:select_group]] # %r(^/set_group|#{LABELS[:select_group]}$)i
+          stats[:config_sending] =
+            count_commands usages, ['/configure_sending', LABELS[:configure_sending]] # %r(^/configure_sending|#{LABELS[:configure_sending]}$)i
+        end
+
+        nil
+      end
+    end
+
+    logger.debug "Statistics collection took #{Time.now - start_time} seconds"
+
+    statistics
+  end
+
+  def count_commands commands, pattern
+    commands.count do |e|
+      text = e[:command].downcase.then do
+        if it.end_with?("@#{bot.api.get_me.username.downcase}")
+          it.match(/^(.*)@#{bot.api.get_me.username.downcase}$/).match(1)
+        else
+          it
+        end
+      end
+      if pattern.is_a? Regexp
+        text =~ pattern
+      else
+        pattern.any? { it.downcase == text }
+      end && e[:timestamp] >= Time.now - 24*60*60
+    end
+  end
 end
 
 def just_group group
@@ -248,4 +304,4 @@ def just_group group
     "#{prefix.ljust(4)}-#{year}-(%2d)-#{suffix}" % num.to_i
   else group
   end
-end  
+end
