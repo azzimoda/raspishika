@@ -214,10 +214,11 @@ class RaspishikaDevBot
   def send_configuration_statistics message
     statistics = collect_statistics
 
-    daily_sending = statistics[:daily_sending_configuration].sort_by(&:first).map do |time, users|
-      groups = users.map(&:group_name).uniq.size
-      "`%5s => %2s groups, %2s users`" % [time ? time : 'off', groups, users.size]
-    end.join("\n")
+    daily_sending = statistics[:daily_sending_configuration].transform_keys(&:to_s)
+      .sort_by(&:first).map do |time, users|
+        groups = users.map(&:group_name).uniq.size
+        "`%5s => %2s groups, %2s users`" % [time ? time : 'off', groups, users.size]
+      end.join("\n")
     pair_sending = statistics[:pair_sending_configuration].map do |state, users|
       state = state.nil? ? 'nil' : state ? 'on' : 'off'
       groups = users.map(&:group_name).uniq.size
