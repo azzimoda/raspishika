@@ -152,13 +152,16 @@ class RaspishikaDevBot
     statistics = collect_statistics
 
     total_chats = statistics[:private_chats].size + statistics[:group_chats].size
-    total_command_used = statistics[:command_usages].values.map(&:size).sum
-    schedule_command_used = statistics[:command_usages].slice(:week, :tomorrow, :left)
-      .values.map(&:size).sum
+
     top_groups = statistics[:groups].select { it }.transform_values(&:size)
       .sort_by(&:last).reverse.first(3).map { |name, count| "#{just_group name} (#{count})" }
     top_departments = statistics[:departments].select { it }.transform_values(&:size)
       .sort_by(&:last).reverse.first(3).map { |name, count| "#{name} (#{count})" }
+
+    active_chats = statistics[:command_usages].values.flatten.map { it[:user] }.uniq.size
+    total_command_used = statistics[:command_usages].values.map(&:size).sum
+    schedule_command_used = statistics[:command_usages].slice(:week, :tomorrow, :left)
+      .values.map(&:size).sum
 
     text = <<~MARKDOWN
       GENERAL
@@ -166,6 +169,7 @@ class RaspishikaDevBot
       Total chats: #{total_chats}
       Private chats: #{statistics[:private_chats].size}
       Group chats: #{statistics[:group_chats].size}
+      Active chats: #{active_chats}
 
       Total groups: #{statistics[:groups].size}
       Top 3 groups by students:
@@ -306,7 +310,7 @@ class RaspishikaDevBot
 
       commands_statistics = Cache
         .fetch(:"command_usage_statistics_#{user.id}", expires_in: (cache ? 10*60 : 0), log: false) do
-          user.statistics[:last_commands].group_by do |usage|
+          user.statistics[:last_commands].map { it.merge({user: user}) }.group_by do |usage|
             case usage[:command].downcase.then do
               it.end_with?("@#{bot_name}") ? it.match(/^(.*)@#{bot_name}$/).match(1) : it
             end
