@@ -133,7 +133,13 @@ class Schedule
   end
 
   def format
+    return '' if @data.all? { it[:pairs].empty? }
+
     @data.map do |day|
+      if [:event, :iga, :practice].any? { |type| day[:pairs].all? { it[:type] == type } }
+        next "📅 #{day[:weekday]}, #{day[:date]}: *#{day[:pairs][0][:content]}*"
+      end
+
       pairs = day[:pairs].map do |pair|
         next if pair[:type] == :empty
 
@@ -158,7 +164,6 @@ class Schedule
           "\n_#{pair[:title]}_\n*#{pair[:content][:discipline]}*\n#{teacher}"
 
         when :event, :iga, :practice
-          # TODO: Format into single line message.
           " — *#{pair[:content]}*"
         end
 
