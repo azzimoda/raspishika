@@ -42,8 +42,13 @@ class RaspishikaDevBot
       begin
         bot.listen { handle_message it }
       rescue Telegram::Bot::Exceptions::ResponseError => e
-        logger.error('DevBot') { "Telegram API error: #{e.detailed_message}\n\tRetrying..." }
+        logger.error('DevBot') { "Telegram API error: #{e.detailed_message}" }
+        logger.error('DevBot') { "Retrying..." }
         retry
+      rescue => e
+        logger.error('DevBot') { "Unhandled error in bot listen loop: #{e.detailed_message}" }
+        logger.error('DevBot') { "Backtrace: #{e.backtrace.join("\n")}" }
+        logger.error('DevBot') { "Retrying..." }
       end
     end
   rescue Interrupt
