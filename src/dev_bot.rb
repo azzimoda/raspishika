@@ -5,6 +5,18 @@ require_relative 'user'
 
 class RaspishikaDevBot
   ADMIN_CHAT_ID_FILE = File.expand_path('../data/admin_chat_id', __dir__).freeze
+  MY_COMMANDS = [
+    {command: 'log', description: 'Get last log'},
+    {command: 'general', description: 'Get general statistics'},
+    {command: 'groups', description: 'Get groups statistics'},
+    {command: 'departments', description: 'Get departments statistics'},
+    {command: 'new_chats', description: 'Get new users for last N=1 hours'},
+    {command: 'commands', description: 'Get commands usage statistics for last 24 hours'},
+    {command: 'configuration', description: 'Get configuration statistics'},
+    {command: 'update_statistics_cache', description: 'Update statistics cache'},
+    {command: 'help', description: 'No help'},
+    {command: 'start', description: 'Start'},
+  ]
 
   def initialize logger: nil
     @logger = logger || Logger.new($stderr, level: Logger::ERROR)
@@ -25,21 +37,8 @@ class RaspishikaDevBot
     Telegram::Bot::Client.run(@token) do |bot|
       logger.info('DevBot') { "Bot is running." }
       @bot = bot
-      bot.api.set_my_commands(
-        commands: [
-          {command: 'log', description: 'Get last log'},
-          {command: 'general', description: 'Get general statistics'},
-          {command: 'groups', description: 'Get groups statistics'},
-          {command: 'departments', description: 'Get departments statistics'},
-          {command: 'new_users', description: 'Get new users for last N=1 hours'},
-          {command: 'commands', description: 'Get commands usage statistics for last 24 hours'},
-          {command: 'configuration', description: 'Get configuration statistics'},
-          {command: 'update_statistics_cache', description: 'Update statistics cache'},
-          {command: 'help', description: 'No help'},
-          {command: 'start', description: 'Start'},
-        ]
-      )
       begin
+        bot.api.set_my_commands commands: MY_COMMANDS
         bot.listen { handle_message it }
       rescue Telegram::Bot::Exceptions::ResponseError => e
         logger.error('DevBot') { "Telegram API error: #{e.detailed_message}" }
@@ -49,6 +48,7 @@ class RaspishikaDevBot
         logger.error('DevBot') { "Unhandled error in bot listen loop: #{e.detailed_message}" }
         logger.error('DevBot') { "Backtrace: #{e.backtrace.join("\n")}" }
         logger.error('DevBot') { "Retrying..." }
+        retry
       end
     end
   rescue Interrupt
@@ -94,8 +94,8 @@ class RaspishikaDevBot
     when '/configuration' then send_configuration_statistics message
     when '/commands' then send_commands_statistics message
     when '/update_statistics_cache' then collect_statistics cache: false
-    when '/new_users' then send_new_users message
-    when %r(/new_users\s+(\d+)) then send_new_users message, days: Regexp.last_match(1).to_i
+    when '/new_chats' then send_new_users message
+    when %r(/new_chats\s+(\d+)) then send_new_users message, days: Regexp.last_match(1).to_i
     else bot.api.send_message(chat_id: message.chat.id, text: "Huh?")
     end
   rescue => e
@@ -142,7 +142,7 @@ class RaspishikaDevBot
     groups = User.users.values.group_by(&:group_name)
       .transform_keys { just_group it }
       .transform_values(&:size)
-      .sort_by(&:last)
+      .sort_by { |k, v| [v, k] } # Sort by count and group name
       .reverse
     text = groups.map { '`%15s (%2d users)`' % it }.join("\n")
     bot.api.send_message(chat_id: message.chat.id, text:, parse_mode: 'Markdown')
@@ -158,10 +158,17 @@ class RaspishikaDevBot
     top_departments = statistics[:departments].select { it }.transform_values(&:size)
       .sort_by(&:last).reverse.first(3).map { |name, count| "#{name} (#{count})" }
 
-    active_chats = statistics[:command_usages].values.flatten.map { it[:user] }.uniq.size
-    total_command_used = statistics[:command_usages].values.map(&:size).sum
-    schedule_command_used = statistics[:command_usages].slice(:week, :tomorrow, :left)
-      .values.map(&:size).sum
+    day_commands = statistics[:command_usages]
+      .map { |k, v| [k, v.select { Time.now - it[:timestamp] <= 24*60*60 }] }.to_h
+    active_chats = day_commands.values.flatten.map { it[:user] }.uniq.size
+    total_command_used = day_commands.values.map(&:size).sum
+    schedule_command_used = day_commands.slice(:week, :tomorrow, :left).values.map(&:size).sum
+
+    week_commands = statistics[:command_usages]
+      .map { |k, v| [k, v.select { Time.now - it[:timestamp] <= 7*24*60*60 }] }.to_h
+    active_chats_week = day_commands.values.flatten.map { it[:user] }.uniq.size
+    total_command_used_week = day_commands.values.map(&:size).sum
+    schedule_command_used_week = day_commands.slice(:week, :tomorrow, :left).values.map(&:size).sum
 
     text = <<~MARKDOWN
       GENERAL
@@ -169,7 +176,6 @@ class RaspishikaDevBot
       Total chats: #{total_chats}
       Private chats: #{statistics[:private_chats].size}
       Group chats: #{statistics[:group_chats].size}
-      Active chats: #{active_chats}
 
       Total groups: #{statistics[:groups].size}
       Top 3 groups by students:
@@ -183,12 +189,18 @@ class RaspishikaDevBot
 
       LAST 24 HOURS
 
-      New users: #{statistics[:new_users].size}
-      (/new_users)
-
+      New chats: #{statistics[:new_chats].size}
+      (/new_chats)
+      Active chats: #{active_chats}
       Total commands used: #{total_command_used}
       Schedule commands used: #{schedule_command_used}
       (/commands)
+
+      LAST WEEK
+
+      Active chats: #{active_chats_week}
+      Total commands used: #{total_command_used_week}
+      Schedule commands used: #{schedule_command_used_week}
     MARKDOWN
     bot.api.send_message(chat_id: message.chat.id, text:)
   end
@@ -269,7 +281,7 @@ class RaspishikaDevBot
       group_chats: [], # 
       groups: {}, # group => chats
       departments: {}, # department => groups
-      new_users: [],
+      new_chats: [],
       daily_sending_configuration: {}, # time => chats
       pair_sending_configuration: {}, # state(nil,false,true) => chats
       command_usages: {
@@ -286,11 +298,7 @@ class RaspishikaDevBot
     }
     bot_name = bot.api.get_me.username.downcase
     User.users.values.each do |user|
-      if user.id.to_i > 0
-        statistics[:private_chats] << user
-      else
-        statistics[:group_chats] << user
-      end
+      ((user.id.to_i > 0) ? statistics[:private_chats] : statistics[:group_chats]) << user
 
       statistics[:groups][user.group_name] ||= []
       statistics[:groups][user.group_name] << user
@@ -305,7 +313,7 @@ class RaspishikaDevBot
       statistics[:pair_sending_configuration][user.pair_sending] << user
 
       if user.statistics[:start].then { it && it >= Time.now - 24*60*60 }
-        statistics[:new_users] << user
+        statistics[:new_chats] << user
       end
 
       commands_statistics = Cache
