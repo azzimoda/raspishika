@@ -166,9 +166,9 @@ class RaspishikaDevBot
 
     week_commands = statistics[:command_usages]
       .map { |k, v| [k, v.select { Time.now - it[:timestamp] <= 7*24*60*60 }] }.to_h
-    active_chats_week = day_commands.values.flatten.map { it[:user] }.uniq.size
-    total_command_used_week = day_commands.values.map(&:size).sum
-    schedule_command_used_week = day_commands.slice(:week, :tomorrow, :left).values.map(&:size).sum
+    active_chats_week = week_commands.values.flatten.map { it[:user] }.uniq.size
+    total_command_used_week = week_commands.values.map(&:size).sum
+    schedule_command_used_week = week_commands.slice(:week, :tomorrow, :left).values.map(&:size).sum
 
     text = <<~MARKDOWN
       GENERAL
