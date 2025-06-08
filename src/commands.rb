@@ -35,7 +35,7 @@ class RaspishikaBot
     )
   end
 
-  def configure_group(message, user)
+  def configure_group(message, user, quick: false)
     departments = Cache.fetch(:departments, expires_in: LONG_CACHE_TIME) { parser.fetch_departments }
 
     unless departments&.any?
@@ -51,8 +51,7 @@ class RaspishikaBot
     end
 
     user.departments = departments.keys
-    user.state = :select_department
-
+    user.state = quick ? :select_department_quick : :select_department
     user.push_command_usage command: message.text, ok: true
 
     keyboard = [["Отмена"]] + departments.keys.each_slice(2).to_a
@@ -106,7 +105,7 @@ class RaspishikaBot
     user.department_url = departments[message.text]
     user.department_name_temp = message.text
     user.groups = groups
-    user.state = :select_group
+    user.state = user.state.end_with?('quick') ? :select_group_quick : :select_group
     user.push_command_usage command: message.text, ok: true
 
     keyboard = [["Отмена"]] + groups.keys.each_slice(2).to_a
@@ -142,14 +141,18 @@ class RaspishikaBot
     user.group = group_info[:gr]
     user.group_name = message.text
     user.groups = {}
+
+    if user.state.end_with? 'quick'
+      send_week_schedule message, user
+    else
+      bot.api.send_message(
+        chat_id: message.chat.id,
+        text: "Теперь #{message.chat.id > 0 ? 'ты' : 'вы'} в группе #{message.text}",
+        reply_markup: default_reply_markup(user.id)
+      )
+    end
     user.state = :default
     user.push_command_usage command: message.text, ok: true
-
-    bot.api.send_message(
-      chat_id: message.chat.id,
-      text: "Теперь #{message.chat.id > 0 ? 'ты' : 'вы'} в группе #{message.text}",
-      reply_markup: default_reply_markup(user.id)
-    )
   end
 
   def send_week_schedule(_message, user)

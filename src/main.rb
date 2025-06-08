@@ -27,14 +27,15 @@ if ENV['TELEGRAM_BOT_TOKEN'].nil?
 end
 
 LABELS = {
-  left: "Оставшиеся пары",
-  tomorrow: "Завтра",
-  week: "Неделя",
-  select_group: "Выбрать группу",
-  configure_sending: "Настроить рассылку",
-  daily_sending: "Ежедневная рассылка",
-  pair_sending_on: "Вкл. рассылку перед парами",
-  pair_sending_off: "Выкл. рассылку перед парами",
+  left: 'Оставшиеся пары',
+  tomorrow: 'Завтра',
+  week: 'Неделя',
+  select_group: 'Выбрать группу',
+  configure_sending: 'Настроить рассылку',
+  daily_sending: 'Ежедневная рассылка',
+  pair_sending_on: 'Вкл. рассылку перед парами',
+  pair_sending_off: 'Выкл. рассылку перед парами',
+  quick_schedule: 'Быстрое расписание',
 }
 
 class RaspishikaBot
@@ -44,7 +45,7 @@ class RaspishikaBot
   DEFAULT_KEYBOARD = [
     [LABELS[:left]],
     [LABELS[:tomorrow], LABELS[:week]],
-    [LABELS[:select_group], LABELS[:configure_sending]],
+    [LABELS[:quick_schedule], LABELS[:select_group], LABELS[:configure_sending]],
   ]
   if ENV["DEBUG_CM"]
     DEFAULT_KEYBOARD.push(
@@ -62,16 +63,17 @@ class RaspishikaBot
     {command: 'left', description: 'Оставшиеся пары'},
     {command: 'tomorrow', description: 'Расписание на завтра'},
     {command: 'week', description: 'Расписание на неделю'},
+    {command: 'quick_schedule', description: 'Быстрое расписание другой группы'},
     {command: 'configure_sending', description: 'Настроить рассылку'},
     {command: 'configure_daily_sending', description: 'Настроить ежедневную рассылку'},
     {command: 'daily_sending_off', description: 'Выключить ежедневную рассылку'},
     {command: 'pair_sending_on', description: 'Включить рассылку перед парами'},
     {command: 'pair_sending_off', description: 'Выключить рассылку перед парами'},
-    {command: 'set_group', description: 'Выбрать группу'},
+    {command: 'set_group', description: 'Изменить группу'},
     {command: 'cancel', description: 'Отменить действие'},
     {command: 'stop', description: 'Остановить бота и удалить данные о себе'},
     {command: 'help', description: 'Помощь'},
-    {command: 'start', description: 'Запуск бота'},
+    {command: 'start', description: 'Запуск бота'}
   ]
 
   HELP_MESSAGE = <<~MARKDOWN
@@ -82,12 +84,13 @@ class RaspishikaBot
   - /left — Оставшиеся пары
   - /tomorrow — Расписание на завтра
   - /week — Расписание на неделю
+  - /quick_schedule — Быстрое расписание другой группы
   - /configure_sending — Войти в меню настройки рассылок
   - /configure_daily_sending — Настроить ежедневную рассылку
   - /daily_sending_off — Выключить ежедневную рассылку
   - /pair_sending_on — Включить рассылку перед парами
   - /pair_sending_off — Выключить рассылку перед парами
-  - /set_group — Выбрать группу
+  - /set_group — Изменить свою группу
   - /cancel — Отменить текущее действие
   - /stop — Остановить бота и удалить данные о себе
 
@@ -330,15 +333,19 @@ class RaspishikaBot
       when '/start' then start_message message, user
       when '/help' then help_message message, user
       when '/set_group', LABELS[:select_group].downcase then configure_group message, user
-      when ->(t) { user.state == :select_department && user.departments.map(&:downcase).include?(t) }
+      when ->(t) { user.state.start_with?('select_department') && user.departments.map(&:downcase).include?(t) }
         select_department message, user
       when ->(t) { user.groups.keys.map(&:downcase).include?(t) }
         select_group message, user
       when '/week', LABELS[:week].downcase then send_week_schedule message, user
       when '/tomorrow', LABELS[:tomorrow].downcase then send_tomorrow_schedule message, user
       when '/left', LABELS[:left].downcase then send_left_schedule message, user
-      when '/configure_sending', LABELS[:configure_sending].downcase then configure_sending message, user
-      when '/configure_daily_sending', 'ежедневная рассылка' then configure_daily_sending message, user
+      when '/quick_schedule', LABELS[:quick_schedule].downcase
+        configure_group(message, user, quick: true)
+      when '/configure_sending', LABELS[:configure_sending].downcase
+        configure_sending message, user
+      when '/configure_daily_sending', 'ежедневная рассылка'
+        configure_daily_sending message, user
       when %r(^\d{1,2}:\d{2}$)
         if (message.text =~ %r(^\d{1,2}:\d{2}$) && Time.parse(message.text) rescue false)
           set_daily_sending message, user

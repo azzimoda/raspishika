@@ -1,3 +1,6 @@
+require 'json'
+require 'time'
+
 class User
   BACKUP_FILE = File.expand_path('../data/users.json', __dir__)
   TEMP_FILE = File.expand_path('../data/cache/users.json.tmp', __dir__)
