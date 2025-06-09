@@ -115,7 +115,7 @@ class ScheduleParser
 
     base_url = "https://coworking.tyuiu.ru/shs/all_t/sh#{group_info[:zaochnoe] ? 'z' : ''}.php"
     url = "#{base_url}?action=group&union=0&sid=#{group_info[:sid]}&gr=#{group_info[:gr]}&year=#{Time.now.year}&vr=1"
-    logger&.debug "Fetching schedule from: #{url}"
+    logger&.debug "URL: #{url}"
 
     html = nil
     use_browser do |browser|
@@ -157,8 +157,8 @@ class ScheduleParser
     ensure
       debug_dir = File.join('data', 'debug')
       Dir.mkdir(debug_dir) unless Dir.exist?(debug_dir)
+      # Saving original HTML into data/debug/schedule.html for debug
       File.write(File.join(debug_dir, 'schedule.html'), html)
-      logger&.debug "Original HTML saved into data/debug/schedule.html"
     end
   end
 
@@ -188,7 +188,7 @@ class ScheduleParser
       return nil
     end
 
-    logger&.debug "Parsing html table..."
+    logger&.info "Parsing html table..."
 
     header_row = table.css('tr').first
     day_headers = header_row.css('td:nth-child(n+3)').map do |header|

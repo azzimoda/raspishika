@@ -41,6 +41,7 @@ LABELS = {
 class RaspishikaBot
   THEAD_POOL_SIZE = 20
   LONG_CACHE_TIME = 24 * 60 * 60 # 24 hours
+  MAX_RETRIES = 5
 
   DEFAULT_KEYBOARD = [
     [LABELS[:left]],
@@ -102,6 +103,7 @@ class RaspishikaBot
     @scheduler = Rufus::Scheduler.new
     @parser = ScheduleParser.new(logger: @logger)
     @thread_pool = Concurrent::FixedThreadPool.new THEAD_POOL_SIZE
+    @retries = 0
 
     @token = ENV['TELEGRAM_BOT_TOKEN']
     @run = true
@@ -138,22 +140,43 @@ class RaspishikaBot
         logger.info "Starting bot listen loop..."
         bot.listen { |message| handle_message message }
       rescue Telegram::Bot::Exceptions::ResponseError => e
-        msg = "Telegram API error: #{e.detailed_message}; retrying..."
-        logger.error msg
-        report(msg, backtrace: e.backtrace.join("\n"))
+        "Telegram API error: #{e.detailed_message}".tap do |msg|
+          logger.error msg
+          logger.error "Retrying... (#{@retries + 1}/#{MAX_RETRIES})"
+          report(msg, backtrace: e.backtrace.join("\n"))
+        end
+
         sleep 5
-        retry
+        retries += 1
+        retry if retries < MAX_RETRIES
+        "Reached maximum retries! Stopping bot...".tap do |msg|
+          logger.fatal msg
+          report "FATAL ERROR: #{msg}"
+        end
       rescue => e
-        msg = "Unhandled error in `bot.listen`: #{e.detailed_message}; retrying..."
-        logger.error msg
-        report(msg, backtrace: e.backtrace.join("\n"))
+        "Unhandled error in `bot.listen`: #{e.detailed_message}".tap do |msg|
+          logger.error msg
+          logger.error "Retrying... (#{@retries + 1}/#{MAX_RETRIES})"
+          report(msg, backtrace: e.backtrace.join("\n"))
+        end
+
         sleep 5
-        retry
+        retries += 1
+        retry if retries < MAX_RETRIES
+        "Reached maximum retries! Stopping bot...".tap do |msg|
+          logger.fatal msg
+          report "FATAL ERROR: #{msg}"
+        end
       end
     end
   rescue Interrupt
     puts
     logger.warn "Keyboard interruption"
+  rescue => e
+    puts
+    logger.fatal "Unhandled error in the main method (#run):"
+    logger.fatal { e.detailed_message }
+    logger.fatal { e.backtrace.join "\n" }
   ensure
     report "Bot stopped."
     @run = false
@@ -308,8 +331,9 @@ class RaspishikaBot
     return unless message.text
 
     begin
+      msg_text = message.text.size > 32 ? message.text[0...32] + '…' : message.text
       logger.debug(
-        "Received: #{message.text} from #{message.chat.id}" \
+        "Received: #{msg_text} from #{message.chat.id}" \
         " (@#{message.from.username}, #{message.from.first_name} #{message.from.last_name})"
       )
   
@@ -362,9 +386,9 @@ class RaspishikaBot
         disable_pair_sending message, user
       when '/cancel', 'отмена' then cancel_action message, user
       when %r(^/debug\s+\w+$) then debug_command message, user
-      else
-        logger.debug "Unhandled text message:" \
-          " #{message.text.size > 64 ? message.text[0..63] + '...' : message.text}"
+      # else
+      #   logger.debug "Unhandled text message:" \
+      #     " #{message.text.size > 64 ? message.text[0..63] + '...' : message.text}"
       end
     rescue => e
       msg =

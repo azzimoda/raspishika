@@ -17,12 +17,14 @@ class RaspishikaDevBot
     {command: 'help', description: 'No help'},
     {command: 'start', description: 'Start'},
   ]
+  MAX_RETRIES = 5
 
   def initialize logger: nil
     @logger = logger || Logger.new($stderr, level: Logger::ERROR)
     @token = ENV['DEV_BOT_TOKEN']
     @admin_chat_id = File.read(ADMIN_CHAT_ID_FILE).chomp.to_i rescue nil
     @run = ENV['DEV_BOT'] ? ENV['DEV_BOT'] == 'true' : true
+    @retries = 0
   end
   attr_accessor :logger, :bot
 
@@ -54,6 +56,18 @@ class RaspishikaDevBot
   rescue Interrupt
     puts
     logger.warn('DevBot') { "Keyboard interruption" }
+  rescue => e
+    logger.error('DevBot') { "Unhandled error in dev bot main method: #{e.detailed_message}" }
+    logger.error('DevBot') { "Backtrace: #{e.backtrace.join("\n")}" }
+    logger.error('DevBot') { "Retrying..." }
+
+    sleep 5
+    retries += 1
+    retry if retries < MAX_RETRIES
+    "Reached maximum retries! Stopping dev bot...".tap do |msg|
+      logger.fatal('DevBot') { msg }
+      report "FATAL ERROR: #{msg}"
+    end
   ensure
     File.write(ADMIN_CHAT_ID_FILE, @admin_chat_id.to_s) if @admin_chat_id
   end
