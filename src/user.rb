@@ -82,6 +82,15 @@ module Raspishika
       :daily_sending, :pair_sending,
       :departments, :groups, :department_name_temp, :department_url,
       :statistics
+    
+    def private?
+      # TODO: Understand why id is a string, and is it a string always.
+      id.to_s.to_i.positive?
+    end
+
+    def supergroup?
+      id.to_s.to_i.negative?
+    end
   
     def zaochnoe?
       @department_name == 'заочное обучение'

@@ -57,7 +57,7 @@ module Raspishika
       puts
       logger.warn('DevBot') { "Keyboard interruption" }
     rescue => e
-      logger.error('DevBot') { "Unhandled error in dev bot main method: #{e.detailed_message}" }
+      logger.error('DevBot') { "Unhandled error in bot main method: #{e.detailed_message}" }
       logger.error('DevBot') { "Backtrace: #{e.backtrace.join("\n")}" }
       logger.error('DevBot') { "Retrying..." }
   
@@ -80,7 +80,7 @@ module Raspishika
       if log
         bot.api.send_message(
           chat_id: @admin_chat_id,
-          text: "LOGS:\n```\n#{last_log lines: log}\n```",
+          text: "LOG:\n```\n#{last_log lines: log}\n```",
           parse_mode: 'Markdown'
         )
       end
@@ -116,7 +116,9 @@ module Raspishika
       bot.api.send_message(
         chat_id: @admin_chat_id, text: "Unlandled error in `#handle_message`: #{e.detailed_message}"
       )
-      bot.api.send_message(chat_id: @admin_chat_id, text: "```\n#{e.backtrace.join("\n")}\n```", parse_mode: 'Markdown')
+      bot.api.send_message(
+        chat_id: @admin_chat_id, text: "```\n#{e.backtrace.join("\n")}\n```", parse_mode: 'Markdown'
+      )
     end
   
     def send_log message, lines: 20
@@ -140,25 +142,24 @@ module Raspishika
     end
   
     def send_departments message
-      departments = User.users.values.group_by(&:department_name)
+      departments = collect_statistics[:departments]
         .transform_keys { it.to_s.ljust 14 }
-        .transform_values { it.group_by(&:group_name).then { [it.size, it.values.sum(&:size)] } }
-        .sort_by(&:last)
-        .reverse
+        .transform_values do |groups|
+          chats = groups.values.flatten
+          [groups.size, chats.count(&:private?), chats.count(&:supergroup?)]
+        end
+        .sort_by(&:last).reverse
   
-      text = departments
-        .map { |k, v| '`%s (%2d groups, %2d users)`' % ([k] + v) }
-        .join("\n")
+      text = departments.map { |k, v| '`%s (%2d groups, %2d PC, %2d GC)`' % ([k] + v) }.join("\n")
       bot.api.send_message(chat_id: message.chat.id, text:, parse_mode: 'Markdown')
     end
   
     def send_groups message
-      groups = User.users.values.group_by(&:group_name)
-        .transform_keys { just_group it }
-        .transform_values(&:size)
-        .sort_by { |k, v| [v, k] } # Sort by count and group name
-        .reverse
-      text = groups.map { '`%15s (%2d users)`' % it }.join("\n")
+      groups = collect_statistics[:groups]
+        .transform_keys { DevBot.just_group it }
+        .transform_values { [it.count(&:private?), it.count(&:supergroup?)] }
+        .sort_by { |k, v| [v, k] }.reverse
+      text = groups.map { |k, v| '`%15s (%2d PC, %2d GC)`' % ([k] + v) }.join("\n")
       bot.api.send_message(chat_id: message.chat.id, text:, parse_mode: 'Markdown')
     end
   
@@ -166,23 +167,30 @@ module Raspishika
       statistics = collect_statistics
   
       total_chats = statistics[:private_chats].size + statistics[:group_chats].size
-  
-      top_groups = statistics[:groups].select { it }.transform_values(&:size)
-        .sort_by(&:last).reverse.first(3).map { |name, count| "#{just_group name} (#{count})" }
-      top_departments = statistics[:departments].select { it }.transform_values(&:size)
-        .sort_by(&:last).reverse.first(3).map { |name, count| "#{name} (#{count})" }
+      
+      top_groups = statistics[:groups]
+        .transform_values { [it.count(&:private?), it.count(&:supergroup?)] }
+        .sort_by(&:last).reverse.first(3)
+        .map { |k, v| "%s (%2d PC, %2d GC)" % ([DevBot.just_group(k)] + v) }
+      top_departments = statistics[:departments]
+        .transform_values do |groups|
+          chats = groups.values.flatten
+          [groups.size, chats.count(&:private?), chats.count(&:supergroup?)]
+        end
+        .sort_by(&:last).reverse.first(3)
+        .map { |k, v| "%14s (%2s groups, %2d PC, %2d GC)" % ([k] + v) }
   
       day_commands = statistics[:command_usages]
         .map { |k, v| [k, v.select { Time.now - it[:timestamp] <= 24*60*60 }] }.to_h
       active_chats = day_commands.values.flatten.map { it[:user] }.uniq.size
-      total_command_used = day_commands.values.map(&:size).sum
-      schedule_command_used = day_commands.slice(:week, :tomorrow, :left).values.map(&:size).sum
+      total_commands = day_commands.values.sum(&:size)
+      schedule_commands = day_commands.slice(:week, :tomorrow, :left).values.sum(&:size)
   
       week_commands = statistics[:command_usages]
         .map { |k, v| [k, v.select { Time.now - it[:timestamp] <= 7*24*60*60 }] }.to_h
       active_chats_week = week_commands.values.flatten.map { it[:user] }.uniq.size
-      total_command_used_week = week_commands.values.map(&:size).sum
-      schedule_command_used_week = week_commands.slice(:week, :tomorrow, :left).values.map(&:size).sum
+      total_commands_week = week_commands.values.sum(&:size)
+      schedule_commands_week = week_commands.slice(:week, :tomorrow, :left).values.sum(&:size)
   
       text = <<~MARKDOWN
         GENERAL
@@ -206,15 +214,15 @@ module Raspishika
         New chats: #{statistics[:new_chats].size}
         (/new_chats)
         Active chats: #{active_chats}
-        Total commands used: #{total_command_used}
-        Schedule commands used: #{schedule_command_used}
+        Total commands used: #{total_commands}
+        Schedule commands used: #{schedule_commands}
         (/commands)
   
         LAST WEEK
   
         Active chats: #{active_chats_week}
-        Total commands used: #{total_command_used_week}
-        Schedule commands used: #{schedule_command_used_week}
+        Total commands used: #{total_commands_week}
+        Schedule commands used: #{schedule_commands_week}
       MARKDOWN
       bot.api.send_message(chat_id: message.chat.id, text:)
     end
@@ -233,7 +241,7 @@ module Raspishika
           user.statistics[:start]&.strftime('%F %T'),
           user.id,
           user.department_name,
-          just_group(user.group_name)
+          DevBot.just_group(user.group_name)
         ]
       end.join("\n\n")
   
@@ -294,8 +302,8 @@ module Raspishika
         private_chats: [],
         group_chats: [], # 
         groups: {}, # group => chats
-        departments: {}, # department => groups
-        new_chats: [],
+        departments: {}, # department => {group => chats}
+        new_chats: [], # for last 24 hours
         daily_sending_configuration: {}, # time => chats
         pair_sending_configuration: {}, # state(nil,false,true) => chats
         command_usages: {
@@ -312,13 +320,14 @@ module Raspishika
       }
       bot_name = bot.api.get_me.username.downcase
       User.users.values.each do |user|
-        ((user.id.to_i > 0) ? statistics[:private_chats] : statistics[:group_chats]) << user
+        (user.private? ? statistics[:private_chats] : statistics[:group_chats]) << user
   
         statistics[:groups][user.group_name] ||= []
         statistics[:groups][user.group_name] << user
   
-        statistics[:departments][user.department_name] ||= Set.new
-        statistics[:departments][user.department_name] << user.group_name
+        statistics[:departments][user.department_name] ||= {}
+        statistics[:departments][user.department_name][user.group_name] ||= []
+        statistics[:departments][user.department_name][user.group_name] << user
   
         statistics[:daily_sending_configuration][user.daily_sending] ||= []
         statistics[:daily_sending_configuration][user.daily_sending] << user
@@ -356,15 +365,15 @@ module Raspishika
   
       statistics
     end
-  end
-  
-  def just_group group
-    return '' if group.nil? || group.empty?
-  
-    if group =~ /^(\S+)-(\d+)-\((\d+)\)-(\d+)$/
-      prefix, year, num, suffix = $1, $2, $3, $4
-      "#{prefix.ljust(5)}-#{year}-(%2d)-#{suffix}" % num.to_i
-    else group
+
+    def self.just_group group
+      return '' if group.nil? || group.empty?
+    
+      if group =~ /^(\S+)-(\d+)-\((\d+)\)-(\d+)$/
+        prefix, year, num, suffix = $1, $2, $3, $4
+        "#{prefix.ljust(5)}-#{year}-(%2d)-#{suffix}" % num.to_i
+      else group
+      end
     end
   end
 end
