@@ -78,27 +78,6 @@ module Raspishika
       {command: 'start', description: 'Запуск бота'}
     ]
   
-    HELP_MESSAGE = <<~MARKDOWN
-    Доступные команды:
-  
-    - /start — Запуск бота
-    - /help — Помощь
-    - /left — Оставшиеся пары
-    - /tomorrow — Расписание на завтра
-    - /week — Расписание на неделю
-    - /quick_schedule — Быстрое расписание другой группы
-    - /configure_sending — Войти в меню настройки рассылок
-    - /configure_daily_sending — Настроить ежедневную рассылку
-    - /daily_sending_off — Выключить ежедневную рассылку
-    - /pair_sending_on — Включить рассылку перед парами
-    - /pair_sending_off — Выключить рассылку перед парами
-    - /set_group — Изменить свою группу
-    - /cancel — Отменить текущее действие
-    - /stop — Остановить бота и удалить данные о себе
-  
-    Вы также можете использовать кнопки клавиатуры для быстрого доступа к основным функциям.
-    MARKDOWN
-  
     def initialize
       @logger = Raspishika::Logger.new
       @scheduler = Rufus::Scheduler.new
