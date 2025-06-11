@@ -127,8 +127,8 @@ module Raspishika
           end
   
           sleep 5
-          retries += 1
-          retry if retries < MAX_RETRIES
+          @retries += 1
+          retry if @retries < MAX_RETRIES
           "Reached maximum retries! Stopping bot...".tap do |msg|
             logger.fatal msg
             report "FATAL ERROR: #{msg}"
@@ -141,8 +141,8 @@ module Raspishika
           end
   
           sleep 5
-          retries += 1
-          retry if retries < MAX_RETRIES
+          @retries += 1
+          retry if @retries < MAX_RETRIES
           "Reached maximum retries! Stopping bot...".tap do |msg|
             logger.fatal msg
             report "FATAL ERROR: #{msg}"
@@ -155,8 +155,8 @@ module Raspishika
     rescue => e
       puts
       logger.fatal "Unhandled error in the main method (#run):"
-      logger.fatal { e.detailed_message }
-      logger.fatal { e.backtrace.join "\n" }
+      logger.fatal e.detailed_message
+      logger.fatal e.backtrace.join "\n"
     ensure
       report "Bot stopped."
       @run = false
