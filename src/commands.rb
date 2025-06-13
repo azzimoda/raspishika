@@ -180,7 +180,7 @@ module Raspishika
       sent_message = send_loading_message user.id
 
       schedule = Cache.fetch(:"schedule_#{group_info[:sid]}_#{group_info[:gr]}") do
-        parser.fetch_schedule user.group_info
+        parser.fetch_schedule group_info
       end
 
       file_path = ImageGenerator.image_path(**group_info)
