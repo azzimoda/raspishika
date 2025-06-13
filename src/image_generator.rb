@@ -19,11 +19,11 @@ module Raspishika
       File.write(file_path, html)
   
       page.set_viewport_size(width: IMAGE_WIDTH, height: IMAGE_HEIGHT)
-      page.goto "file://#{File.absolute_path(file_path)}", timeout: TIMEOUT * 1000
+      page.goto "file://#{File.absolute_path(file_path)}", timeout: ScheduleParser::TIMEOUT * 1000
       sleep 1
   
       output_path = image_path(**group_info)
-      page.screenshot(path: output_path, timeout: TIMEOUT * 1000)
+      page.screenshot(path: output_path, timeout: ScheduleParser::TIMEOUT * 1000)
   
       logger&.debug "Screenshot saved to #{output_path}"
     end
