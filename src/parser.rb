@@ -30,7 +30,7 @@ module Raspishika
       logger&.info "Initializing browser thread..."
       @thread = Thread.new do
         Playwright.create(playwright_cli_executable_path: 'npx playwright') do |playwright|
-          @browser = playwright.chromium.launch(headless: true)
+          @browser = playwright.chromium.launch(headless: true, timeout: TIMEOUT * 1000)
           logger&.info "Browser is ready"
           @ready = true
           sleep 1 while @browser.connected?
@@ -129,7 +129,7 @@ module Raspishika
           'Sec-Fetch-Mode' => 'navigate'
         )
   
-        page.goto('https://mnokol.tyuiu.ru/')
+        page.goto('https://mnokol.tyuiu.ru/', timeout: TIMEOUT * 1000)
         sleep 1
   
         html = nil

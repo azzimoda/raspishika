@@ -25,7 +25,7 @@ module Raspishika
 
   if ENV['TELEGRAM_BOT_TOKEN'].nil?
     puts "FATAL: Environment variable TELEGRAM_BOT_TOKEN is nil"
-    quit
+    exit
   end
   
   LABELS = {
