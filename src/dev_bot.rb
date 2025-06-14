@@ -25,6 +25,9 @@ module Raspishika
       @admin_chat_id = File.read(ADMIN_CHAT_ID_FILE).chomp.to_i rescue nil
       @run = ENV['DEV_BOT'] ? ENV['DEV_BOT'] == 'true' : true
       @retries = 0
+
+      logger.info('DevBot') { "Token: #{@token.inspect}" }
+      logger.info('DevBot') { "Dev bot is disabled" } unless @run
     end
     attr_accessor :logger, :bot
   

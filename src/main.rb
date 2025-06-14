@@ -114,8 +114,12 @@ module Raspishika
         bot.api.set_my_commands(commands: MY_COMMANDS)
   
         schedule_pair_sending
-        @sending_thread = Thread.new(self, &:daily_sending_loop)
-  
+        if ENV['DAILY'].nil? || ENV['DAILY'] != ""
+          @sending_thread = Thread.new(self, &:daily_sending_loop)
+        else
+          logger.info "Daily sending is disabled"
+        end
+
         begin
           logger.info "Starting bot listen loop..."
           bot.listen { |message| handle_message message }
