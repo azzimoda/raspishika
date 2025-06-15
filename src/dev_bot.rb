@@ -21,7 +21,17 @@ module Raspishika
   
     def initialize logger: nil
       @logger = logger || Logger.new($stderr, level: Logger::ERROR)
-      @token = ENV['DEV_BOT_TOKEN']
+      @token = case ENV['DEV_BOT_TOKEN']
+      when nil
+        logger.debug "No `DEV_BOT_TOKEN` env variable, trying to fetch token from `.token` file..."
+        begin
+          File.read('.token_dev').chomp
+        rescue Errno::ENOENT
+          logger.error "No `.token_dev` file found."
+          logger.warn "Cannot start dev bot without token. It won't run."
+        end
+      else ENV['DEV_BOT_TOKEN']
+      end
       @admin_chat_id = File.read(ADMIN_CHAT_ID_FILE).chomp.to_i rescue nil
       @run = ENV['DEV_BOT'] ? ENV['DEV_BOT'] == 'true' : true
       @retries = 0
@@ -80,13 +90,7 @@ module Raspishika
   
       logger.info('DevBot') { "Sending report #{text.inspect}..." }
       bot.api.send_photo(chat_id: @admin_chat_id, photo:) if photo
-      if log
-        bot.api.send_message(
-          chat_id: @admin_chat_id,
-          text: "LOG:\n```\n#{last_log lines: log}\n```",
-          parse_mode: 'Markdown'
-        )
-      end
+      send_log(lines: log) if log
       if backtrace
         bot.api.send_message(
           chat_id: @admin_chat_id,
@@ -95,10 +99,13 @@ module Raspishika
         )
       end
       bot.api.send_message(chat_id: @admin_chat_id, text:)
+    rescue Telegram::Bot::Exceptions::ResponseError => e
+      logger.error('DevBot') { "Telegram API error in `#report`: #{e.detailed_message}" }
+      logger.error('DevBot') { "Traceback:\n#{e.traceback.join("\n")}" }
     end
-  
+
     private
-  
+
     def handle_message message
       case message.text.downcase
       when '/start' then @admin_chat_id = message.chat.id
@@ -123,7 +130,7 @@ module Raspishika
         chat_id: @admin_chat_id, text: "```\n#{e.backtrace.join("\n")}\n```", parse_mode: 'Markdown'
       )
     end
-  
+
     def send_log message, lines: 20
       log = last_log(lines:)
       if log && !log.empty?
@@ -136,7 +143,7 @@ module Raspishika
         bot.api.send_message(chat_id: message.chat.id, text: "No log.")
       end
     end
-  
+
     def last_log lines: 20
       File.exist?(logger.log_file) ? `tail -n #{lines} #{logger.log_file.shellescape}` : ''
     rescue => e
@@ -156,7 +163,7 @@ module Raspishika
       text = departments.map { |k, v| '`%s (%2d groups, %2d PC, %2d GC)`' % ([k] + v) }.join("\n")
       bot.api.send_message(chat_id: message.chat.id, text:, parse_mode: 'Markdown')
     end
-  
+
     def send_groups message
       groups = collect_statistics[:groups]
         .transform_keys { DevBot.just_group it }
@@ -229,7 +236,7 @@ module Raspishika
       MARKDOWN
       bot.api.send_message(chat_id: message.chat.id, text:)
     end
-  
+
     def send_new_users(message, days: 1)
       users = if days == 0
         User.users.values
@@ -238,7 +245,7 @@ module Raspishika
           user.statistics[:start] && user.statistics[:start] >= Time.now - days * 24 * 60 * 60
         end
       end
-  
+
       text = users.map do |user|
         "`%19s %16s\n%14s %s`" % [
           user.statistics[:start]&.strftime('%F %T'),
@@ -251,10 +258,10 @@ module Raspishika
       text = "No new users for the period." if text.strip.empty?
       bot.api.send_message(chat_id: message.chat.id, text:, parse_mode: 'Markdown')
     end
-  
+
     def send_configuration_statistics message
       statistics = collect_statistics
-  
+
       daily_sending = statistics[:daily_sending_configuration].transform_keys(&:to_s)
         .sort_by(&:first).map do |time, users|
           groups = users.map(&:group_name).uniq.size
@@ -277,10 +284,10 @@ module Raspishika
       MARKDOWN
       bot.api.send_message(chat_id: message.chat.id, text:, parse_mode: 'Markdown')
     end
-  
+
     def send_commands_statistics message
       statistics = collect_statistics
-  
+
       text = <<~MARKDOWN
         `
         /week                    => #{statistics[:command_usages][:week].size}
@@ -296,7 +303,7 @@ module Raspishika
       MARKDOWN
       bot.api.send_message(chat_id: message.chat.id, text:, parse_mode: 'Markdown')
     end
-  
+
     def collect_statistics cache: true
       logger.info "Collecting statistics..."
       start_time = Time.now
@@ -360,18 +367,18 @@ module Raspishika
               end
             end
           end
-  
+
         statistics[:command_usages].each { |k, v| v.push(*commands_statistics[k]) }
       end
-  
+
       logger.debug "Statistics collection took #{Time.now - start_time} seconds"
-  
+
       statistics
     end
 
     def self.just_group group
       return '' if group.nil? || group.empty?
-    
+
       if group =~ /^(\S+)-(\d+)-\((\d+)\)-(\d+)$/
         prefix, year, num, suffix = $1, $2, $3, $4
         "#{prefix.ljust(5)}-#{year}-(%2d)-#{suffix}" % num.to_i

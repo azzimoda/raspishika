@@ -13,6 +13,12 @@ require_relative 'commands'
 require_relative 'debug_commands'
 require_relative 'dev_bot'
 
+class Telegram::Bot::Types::User
+  def full_name
+    "#{first_name} #{last_name}".strip
+  end
+end
+
 module Raspishika
   if (message = ENV['NOTIFY'])
     require_relative 'notification'
@@ -23,11 +29,6 @@ module Raspishika
     exit
   end
 
-  if ENV['TELEGRAM_BOT_TOKEN'].nil?
-    puts "FATAL: Environment variable TELEGRAM_BOT_TOKEN is nil"
-    exit
-  end
-  
   LABELS = {
     left: 'Оставшиеся пары',
     tomorrow: 'Завтра',
@@ -85,7 +86,21 @@ module Raspishika
       @thread_pool = Concurrent::FixedThreadPool.new THEAD_POOL_SIZE
       @retries = 0
   
-      @token = ENV['TELEGRAM_BOT_TOKEN']
+      @token = case ENV['TELEGRAM_BOT_TOKEN']
+      when nil
+        logger.debug "No `TELEGRAM_BOT_TOKEN` env variable, trying to fetch token from `.token` file..."
+        begin
+          File.read('.token').chomp
+        rescue Errno::ENOENT
+          logger.error "No `.token` file found."
+          logger.fatal(
+            "Cannot start bot without token." \
+            " Provide it with `TELEGRAM_BOT_TOKEN` env variable or `.token` file"
+          )
+          exit
+        end
+      else ENV['TELEGRAM_BOT_TOKEN']
+      end
       @run = true
       @dev_bot = DevBot.new logger: @logger
       @username = nil
@@ -281,7 +296,7 @@ module Raspishika
   
       pair = Schedule.from_raw(raw_schedule).now(time:)&.pair(0)
       return unless pair
-  
+
       text = case pair.data.dig(0, :pairs, 0, :type)
       when :subject, :exam, :consultation
         "Следующая пара в кабинете %{classroom}:\n%{discipline}\n%{teacher}" %
@@ -299,28 +314,32 @@ module Raspishika
         logger.error e.backtrace.join("\n\t")
       end
     end
-  
+
     def report(*args, **kwargs)
       @dev_bot.report(*args, **kwargs)
     end
-  
+
     def handle_message message
+      # Skip messages sent more than 1 hour ago.
+      return if Time.at(message.date) < Time.now - 1*60*60
+
       case message
       when Telegram::Bot::Types::Message then handle_text_message message
       else logger.debug "Unhandled message type: #{message.class}"
       end
     end
-  
+
     def handle_text_message message
       return unless message.text
-  
+
       begin
-        msg_text = message.text.size > 32 ? message.text[0...32] + '…' : message.text
+        short_text = message.text.size > 32 ? message.text[0...32] + '…' : message.text
         logger.debug(
-          "Received: #{msg_text} from #{message.chat.id}" \
-          " (@#{message.from.username}, #{message.from.first_name} #{message.from.last_name})"
+          "[#{message.chat.id}]" \
+          " #{message.from.full_name} @#{message.from.username} ##{message.from.id} =>" \
+          " #{short_text.inspect}"
         )
-    
+
         user = User[message.chat.id]
         if message.text.downcase != '/start' && user.statistics[:start].nil?
           user.statistics[:start] = Time.now
@@ -329,7 +348,7 @@ module Raspishika
           logger.debug msg
           report msg
         end
-  
+
         text = message.text.downcase.then do
           if it.end_with?("@#{@username.downcase}")
             it.match(/^(.*)@#{@username.downcase}$/).match(1)
@@ -370,23 +389,26 @@ module Raspishika
           disable_pair_sending message, user
         when '/cancel', 'отмена' then cancel_action message, user
         when %r(^/debug\s+\w+$) then debug_command message, user
-        # else
-        #   logger.debug "Unhandled text message:" \
-        #     " #{message.text.size > 64 ? message.text[0..63] + '...' : message.text}"
         end
       rescue => e
-        msg =
-          "Unhandled error in `#handle_text_message`: #{e.detailed_message}\n" \
-          "\tFrom #{message.chat.id} (#{message.from.username}); message #{message.text.inspect}"
-        logger.error msg
-        logger.debug e.backtrace.join"\n"
-        report(msg, backtrace: e.backtrace.join("\n"), log: nil)
+        log_error message, e
         bot.api.send_message(
           chat_id: message.chat.id,
           text: "Произошла ошибка. Попробуйте позже.",
           reply_markup: message.chat.id < 0 ? DEFAULT_REPLY_MARKUP : nil
         )
       end
+    end
+
+    def log_error message, error
+        msgs = [
+          "Unhandled error in `#handle_text_message`: #{error.detailed_message}",
+          "Message from #{message.from.full_name} @#{message.from.username} ##{message.from.id}"
+        ]
+        backtrace = error.backtrace.join "\n"
+        msgs.each { logger.error it }
+        logger.debug "Backtrace:\n#{backtrace}"
+        report("`#{msgs.join("\n")}`", backtrace:, log: 20)
     end
   end
 end
