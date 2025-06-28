@@ -424,7 +424,7 @@ module Raspishika
         bot.api.send_message(
           chat_id: message.chat.id,
           text: "Произошла ошибка. Попробуйте позже.",
-          reply_markup: message.chat.id < 0 ? DEFAULT_REPLY_MARKUP : nil
+          reply_markup: default_reply_markup(user.id)
         )
       end
     end
