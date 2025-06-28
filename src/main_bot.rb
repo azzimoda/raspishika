@@ -3,10 +3,11 @@ require 'telegram/bot'
 
 require_relative 'logger'
 require_relative 'parser'
-
-require_relative 'commands'
 require_relative 'debug_commands'
 require_relative 'dev_bot'
+require_relative 'main_bot/general_commands'
+require_relative 'main_bot/config_commands'
+require_relative 'main_bot/schedule_commands'
 
 class Telegram::Bot::Types::User
   def full_name
@@ -16,8 +17,9 @@ end
 
 module Raspishika
   class Bot
-    TOKEN_FILE = File.expand_path('config/token', ::Raspishika::ROOT_DIR)
+    TOKEN_FILE = File.expand_path('config/token', ROOT_DIR)
     THEAD_POOL_SIZE = 20
+    LONG_CACHE_TIME = 24*60*60 # 24 hours
 
     LABELS = {
       left: 'Оставшиеся пары',
@@ -176,7 +178,7 @@ module Raspishika
     def send_message(*args, **kwargs)
       @bot.api.send_message(*args, **kwargs)
     end
-  
+
     def user_backup_loop
       while @run
         User.backup
@@ -186,18 +188,18 @@ module Raspishika
         end
       end
     end
-  
+
     def daily_sending_loop
       logger.info "Starting daily sending loop..."
       last_sending_time = Time.now - 10*60
-  
+
       while @run
         current_time = Time.now
-  
+
         users_to_send = User.users.values.select do
           it.daily_sending && Time.parse(it.daily_sending).between?(last_sending_time, current_time)
         end
-  
+
         futures = users_to_send.map do |user|
           Concurrent::Future.execute(executor: @thread_pool) do
             start_time = Time.now
@@ -228,26 +230,46 @@ module Raspishika
         end
       end
     end
-  
+
     def schedule_pair_sending
       logger.info "Scheduling pair sending..."
-  
+
       ['8:00', '9:45', '11:30', '13:45', '15:30', '17:15', '19:00'].each do |time|
         logger.debug "Scheduling sending for #{time}..."
         time = Time.parse time
-  
+
         sending_time = time - 15 * 60
         @scheduler.cron("#{sending_time.min} #{sending_time.hour} * * 1-6") do
           send_pair_notification time
         end
       end
     end
-  
+
+    def debug_command(message, user)
+      return unless ENV['DEBUG_CM']
+
+      debug_command_name = message.text.split(' ').last
+      logger.info "Calling test #{debug_command_name}..."
+      unless DebugCommands.respond_to? debug_command_name
+        logger.warn "Test #{debug_command_name} not found"
+        bot.api.send_message(
+          chat_id: message.chat.id,
+          text:
+            "Тест `#{debug_command_name}` не найден.\n\n" \
+            "Доступные тесты: #{DebugCommands.methods.join(', ')}",
+          reply_markup: default_reply_markup(user.id)
+        )
+        return
+      end
+
+      DebugCommands.send(debug_command_name, bot: self, user:, message:)
+    end
+
     private
-  
+
     def send_pair_notification time, user: nil
       logger.info "Sending pair notification for #{time}..."
-  
+
       groups = if user
         logger.debug "Sending pair notification for #{time} to #{user.id} with group #{user.group_info}..."
         {[user.department, user.group] => [user]}
@@ -255,7 +277,7 @@ module Raspishika
         User.users.values.select(&:pair_sending).group_by { [it.department, it.group] }
       end
       logger.debug "Sending pair notification to #{groups.size} groups..."
-  
+
       futures = groups.map do |(sid, gr), users|
         Concurrent::Future.execute(executor: @thread_pool) do
           send_pair_notification_for_group(sid:, gr:, users:, time:)
@@ -266,11 +288,33 @@ module Raspishika
       end
       futures.each(&:wait)
     end
-  
+
+    def send_pair_notification time, user: nil
+      logger.info "Sending pair notification for #{time}..."
+
+      groups = if user
+        logger.debug "Sending pair notification for #{time} to #{user.id} with group #{user.group_info}..."
+        {[user.department, user.group] => [user]}
+      else
+        User.users.values.select(&:pair_sending).group_by { [it.department, it.group] }
+      end
+      logger.debug "Sending pair notification to #{groups.size} groups..."
+
+      futures = groups.map do |(sid, gr), users|
+        Concurrent::Future.execute(executor: @thread_pool) do
+          send_pair_notification_for_group(sid:, gr:, users:, time:)
+        rescue => e
+          logger.error "Failed to send pair notification for group #{gr}: #{e.detailed_message}"
+          logger.error e.backtrace.join("\n")
+        end
+      end
+      futures.each(&:wait)
+    end
+
     def send_pair_notification_for_group(sid:, gr:, users:, time:)
       return unless sid && gr
       return if users.empty? # NOTE: Maybe it's useless line.
-  
+
       raw_schedule = Cache.fetch(:"schedule_#{sid}_#{gr}") do
         @parser.fetch_schedule users.first.group_info
       end
@@ -278,7 +322,7 @@ module Raspishika
         logger.error "Failed to fetch schedule for #{users.first.group_info}"
         return
       end
-  
+
       pair = Schedule.from_raw(raw_schedule).now(time:)&.pair(0)
       return unless pair
 
@@ -290,7 +334,7 @@ module Raspishika
         logger.debug "No pairs left for the group"
         return
       end
-  
+
       logger.debug "Sending pair notification to #{users.size} users of group #{users.first.group_info[:group_name]}..."
       users.map(&:id).each do |chat_id|
         bot.api.send_message(chat_id:, text:)
@@ -394,6 +438,10 @@ module Raspishika
         msgs.each { logger.error it }
         logger.debug "Backtrace:\n#{backtrace}"
         report("`#{msgs.join("\n")}`", backtrace:, log: 20)
+    end
+
+    def default_reply_markup id
+      id.to_s.to_i > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
     end
   end
 end
