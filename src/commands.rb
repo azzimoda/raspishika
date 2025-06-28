@@ -1,6 +1,6 @@
 module Raspishika
   class Bot
-    LONG_CACHE_TIME = 24 * 60 * 60 # 24 hours
+    LONG_CACHE_TIME = 24*60*60 # 24 hours
 
     START_MESSAGE = <<~MARKDOWN
     Привет! Используй /set_group чтобы задать группу, затем используйте команды /week, /tomorrow и \
@@ -41,8 +41,8 @@ module Raspishika
         user.statistics[:start] = Time.now
         msg = "New user: #{message.chat.id}" \
           " (@#{message.from.username}, #{message.from.first_name} #{message.from.last_name})"
-        logger.debug msg
         report msg
+        logger.debug msg
       end
     end
   
@@ -199,7 +199,7 @@ module Raspishika
           parse_mode: 'Markdown',
           reply_markup:
         )
-        report("Failed to fetch schedule for #{group_info}", photo: make_photo.call)
+        report("Failed to fetch schedule for #{group_info}", photo: make_photo.call, log: 20)
       else
         user.push_command_usage command: _message.text, ok: true
       end

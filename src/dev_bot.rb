@@ -5,6 +5,7 @@ require_relative 'user'
 
 module Raspishika
   class DevBot
+    TOKEN_FILE = File.expand_path('config/token_dev', ROOT_DIR)
     ADMIN_CHAT_ID_FILE = File.expand_path('../data/admin_chat_id', __dir__).freeze
     MY_COMMANDS = [
       {command: 'log', description: 'Get last log'},
@@ -18,19 +19,20 @@ module Raspishika
       {command: 'help', description: 'No help'},
       {command: 'start', description: 'Start'},
     ]
-  
-    def initialize logger: nil
-      @logger = logger || Logger.new($stderr, level: Logger::ERROR)
-      @token = case ENV['DEV_BOT_TOKEN']
-      when nil
-        logger.debug "No `DEV_BOT_TOKEN` env variable, trying to fetch token from `.token` file..."
+
+    def initialize main_bot:, logger: nil
+      @main_bot = main_bot
+
+      @logger = logger || ::Logger.new($stderr, level: ::Logger::ERROR)
+      @token = if OPTIONS[:dev_token]
+        OPTIONS[:dev_token]
+      else
         begin
-          File.read('.token_dev').chomp
+          File.read('config/token_dev').chomp
         rescue Errno::ENOENT
-          logger.error "No `.token_dev` file found."
-          logger.warn "Cannot start dev bot without token. It won't run."
+          logger.error "No `config/token_dev` file found."
+          logger.warn "The dev bot won't run."
         end
-      else ENV['DEV_BOT_TOKEN']
       end
       @admin_chat_id = File.read(ADMIN_CHAT_ID_FILE).chomp.to_i rescue nil
       @run = ENV['DEV_BOT'] ? ENV['DEV_BOT'] == 'true' : true
@@ -40,14 +42,14 @@ module Raspishika
       logger.info('DevBot') { "Dev bot is disabled" } unless @run
     end
     attr_accessor :logger, :bot
-  
+
     def run
       return unless @run
       unless @token
         logger.warn('DevBot') { "Token for statistics bot is not set! It won't run." }
         return
       end
-  
+
       logger.info('DevBot') { "Starting statistics bot..." }
       Telegram::Bot::Client.run(@token) do |bot|
         logger.info('DevBot') { "Bot is running." }
@@ -73,21 +75,21 @@ module Raspishika
       logger.error('DevBot') { "Unhandled error in bot main method: #{e.detailed_message}" }
       logger.error('DevBot') { "Backtrace: #{e.backtrace.join("\n")}" }
       logger.error('DevBot') { "Retrying..." }
-  
+
       sleep 5
       retries += 1
       retry if retries < MAX_RETRIES
       "Reached maximum retries! Stopping dev bot...".tap do |msg|
+        report "FATAL ERROR: #{msg}", log: 20
         logger.fatal('DevBot') { msg }
-        report "FATAL ERROR: #{msg}"
       end
     ensure
       File.write(ADMIN_CHAT_ID_FILE, @admin_chat_id.to_s) if @admin_chat_id
     end
-  
+
     def report text, photo: nil, backtrace: nil, log: nil
       return unless @token && @admin_chat_id && @run
-  
+
       logger.info('DevBot') { "Sending report #{text.inspect}..." }
       bot.api.send_photo(chat_id: @admin_chat_id, photo:) if photo
       send_log(lines: log) if log
@@ -110,16 +112,18 @@ module Raspishika
       case message.text.downcase
       when '/start' then @admin_chat_id = message.chat.id
       when ->(*) { @admin_chat_id.nil? } then return
-      when %r(/log\s+(\d+)) then send_log message, lines: Regexp.last_match(1).to_i
-      when '/log' then send_log message
+      when %r(/log\s+(\d+)) then send_log lines: Regexp.last_match(1).to_i
+      when '/log' then send_log
       when '/general' then send_general_statistics message
       when '/departments' then send_departments message
       when '/groups' then send_groups message
       when '/configuration' then send_configuration_statistics message
       when '/commands' then send_commands_statistics message
+      # TODO: /commands DAYS
       when '/update_statistics_cache' then collect_statistics cache: false
       when '/new_chats' then send_new_users message
       when %r(/new_chats\s+(\d+)) then send_new_users message, days: Regexp.last_match(1).to_i
+      when %r(/notify_all\s+(.+)) then send_notification_to_all_users message.text.match(%r(/notify_all\s+(.+)))[1]
       else bot.api.send_message(chat_id: message.chat.id, text: "Huh?")
       end
     rescue => e
@@ -131,11 +135,11 @@ module Raspishika
       )
     end
 
-    def send_log message, lines: 20
+    def send_log lines: 20
       log = last_log(lines:)
       if log && !log.empty?
         bot.api.send_message(
-          chat_id: message.chat.id,
+          chat_id: @admin_chat_id,
           text: "```\n#{log}\n```",
           parse_mode: 'Markdown'
         )
@@ -150,7 +154,7 @@ module Raspishika
       "Failed to get last log: #{e.detailed_message}".tap { logger.error it; report it }
       ''
     end
-  
+
     def send_departments message
       departments = collect_statistics[:departments]
         .transform_keys { it.to_s.ljust 14 }
@@ -159,7 +163,7 @@ module Raspishika
           [groups.size, chats.count(&:private?), chats.count(&:supergroup?)]
         end
         .sort_by(&:last).reverse
-  
+
       text = departments.map { |k, v| '`%s (%2d groups, %2d PC, %2d GC)`' % ([k] + v) }.join("\n")
       bot.api.send_message(chat_id: message.chat.id, text:, parse_mode: 'Markdown')
     end
@@ -172,12 +176,12 @@ module Raspishika
       text = groups.map { |k, v| '`%15s (%2d PC, %2d GC)`' % ([k] + v) }.join("\n")
       bot.api.send_message(chat_id: message.chat.id, text:, parse_mode: 'Markdown')
     end
-  
+
     def send_general_statistics message
       statistics = collect_statistics
-  
+
       total_chats = statistics[:private_chats].size + statistics[:group_chats].size
-      
+
       top_groups = statistics[:groups]
         .transform_values { [it.count(&:private?), it.count(&:supergroup?)] }
         .sort_by(&:last).reverse.first(3)
@@ -189,47 +193,47 @@ module Raspishika
         end
         .sort_by(&:last).reverse.first(3)
         .map { |k, v| "%14s (%2s groups, %2d PC, %2d GC)" % ([k] + v) }
-  
+
       day_commands = statistics[:command_usages]
         .map { |k, v| [k, v.select { Time.now - it[:timestamp] <= 24*60*60 }] }.to_h
       active_chats = day_commands.values.flatten.map { it[:user] }.uniq.size
       total_commands = day_commands.values.sum(&:size)
       schedule_commands = day_commands.slice(:week, :tomorrow, :left).values.sum(&:size)
-  
+
       week_commands = statistics[:command_usages]
         .map { |k, v| [k, v.select { Time.now - it[:timestamp] <= 7*24*60*60 }] }.to_h
       active_chats_week = week_commands.values.flatten.map { it[:user] }.uniq.size
       total_commands_week = week_commands.values.sum(&:size)
       schedule_commands_week = week_commands.slice(:week, :tomorrow, :left).values.sum(&:size)
-  
+
       text = <<~MARKDOWN
         GENERAL
-  
+
         Total chats: #{total_chats}
         Private chats: #{statistics[:private_chats].size}
         Group chats: #{statistics[:group_chats].size}
-  
+
         Total groups: #{statistics[:groups].size}
         Top 3 groups by students:
         #{top_groups.join "\n"}
         (/groups)
-  
+
         Total departments: #{statistics[:departments].size}
         Top 3 departments by groups:
         #{top_departments.join "\n"}
         (/departments)
-  
+
         LAST 24 HOURS
-  
+
         New chats: #{statistics[:new_chats].size}
         (/new_chats)
         Active chats: #{active_chats}
         Total commands used: #{total_commands}
         Schedule commands used: #{schedule_commands}
         (/commands)
-  
+
         LAST WEEK
-  
+
         Active chats: #{active_chats_week}
         Total commands used: #{total_commands_week}
         Schedule commands used: #{schedule_commands_week}
@@ -254,7 +258,7 @@ module Raspishika
           DevBot.just_group(user.group_name)
         ]
       end.join("\n\n")
-  
+
       text = "No new users for the period." if text.strip.empty?
       bot.api.send_message(chat_id: message.chat.id, text:, parse_mode: 'Markdown')
     end
@@ -272,14 +276,14 @@ module Raspishika
         groups = users.map(&:group_name).uniq.size
         "`%5s => %2s groups, %2s users`" % [state, groups, users.size]
       end.join("\n")
-  
+
       text = <<~MARKDOWN
         Pair sending configurations:
-  
+
         #{pair_sending}
-  
+
         Daily sending configurations:
-  
+
         #{daily_sending}
       MARKDOWN
       bot.api.send_message(chat_id: message.chat.id, text:, parse_mode: 'Markdown')
@@ -307,7 +311,7 @@ module Raspishika
     def collect_statistics cache: true
       logger.info "Collecting statistics..."
       start_time = Time.now
-  
+
       statistics = {
         private_chats: [],
         group_chats: [], # 
@@ -331,38 +335,40 @@ module Raspishika
       bot_name = bot.api.get_me.username.downcase
       User.users.values.each do |user|
         (user.private? ? statistics[:private_chats] : statistics[:group_chats]) << user
-  
+
         statistics[:groups][user.group_name] ||= []
         statistics[:groups][user.group_name] << user
-  
+
         statistics[:departments][user.department_name] ||= {}
         statistics[:departments][user.department_name][user.group_name] ||= []
         statistics[:departments][user.department_name][user.group_name] << user
-  
+
         statistics[:daily_sending_configuration][user.daily_sending] ||= []
         statistics[:daily_sending_configuration][user.daily_sending] << user
-  
+
         statistics[:pair_sending_configuration][user.pair_sending] ||= []
         statistics[:pair_sending_configuration][user.pair_sending] << user
-  
+
         if user.statistics[:start].then { it && it >= Time.now - 24*60*60 }
           statistics[:new_chats] << user
         end
-  
+
         commands_statistics = Cache
           .fetch(:"command_usage_statistics_#{user.id}", expires_in: (cache ? 10*60 : 0), log: false) do
             user.statistics[:last_commands].map { it.merge({user: user}) }.group_by do |usage|
-              case usage[:command].downcase.then do
+              text = usage[:command].downcase.then do
                 it.end_with?("@#{bot_name}") ? it.match(/^(.*)@#{bot_name}$/).match(1) : it
               end
-              when '/week', LABELS[:week].downcase then :week
-              when '/tomorrow', LABELS[:tomorrow].downcase then :tomorrow
-              when '/left', LABELS[:left].downcase then :left
-              when '/set_group', LABELS[:select_group].downcase then :config_group
-              when '/configure_sending', LABELS[:configure_sending].downcase then :config_sending
-              when '/configure_daily_sending', LABELS[:daily_sending].downcase then :daily_sending
-              when '/pair_sending_on', LABELS[:pair_sending_on].downcase then :pair_sending_on
-              when '/pair_sending_off', LABELS[:pair_sending_off].downcase then :pair_sending_off
+
+              case text
+              when '/week', Bot::LABELS[:week].downcase then :week
+              when '/tomorrow', Bot::LABELS[:tomorrow].downcase then :tomorrow
+              when '/left', Bot::LABELS[:left].downcase then :left
+              when '/set_group', Bot::LABELS[:select_group].downcase then :config_group
+              when '/configure_sending', Bot::LABELS[:configure_sending].downcase then :config_sending
+              when '/configure_daily_sending', Bot::LABELS[:daily_sending].downcase then :daily_sending
+              when '/pair_sending_on', Bot::LABELS[:pair_sending_on].downcase then :pair_sending_on
+              when '/pair_sending_off', Bot::LABELS[:pair_sending_off].downcase then :pair_sending_off
               else :other
               end
             end
@@ -374,6 +380,17 @@ module Raspishika
       logger.debug "Statistics collection took #{Time.now - start_time} seconds"
 
       statistics
+    end
+
+    def send_notification_to_all_users text
+      count = 0
+      User.users.each_value do |user|
+        @main_bot.send_message chat_id: user.id, text:, parse_mode: 'Markdown'
+        count += 1
+      rescue Telegram::Bot::Exceptions::ResponseError => e
+        logger.error('DevBot') { "Failed to send message to ##{user.id}: #{e.detailed_message}" }
+      end
+      report "Successfully sent notification to #{count} chats."
     end
 
     def self.just_group group

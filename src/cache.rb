@@ -1,13 +1,6 @@
 module Raspishika
   module Cache
-    DEFAULT_CACHE_EXPIRATION = case ENV["CACHE"]
-    when nil then 10*60
-    when "" then 0
-    when ->(x) { x.to_i } then ENV["CACHE"].to_i * 60
-    else
-      puts "Error: CACHE environment variable must be a positibe integer number."
-      exit 1
-    end
+    DEFAULT_CACHE_EXPIRATION = 10*60 # 10 minutes
     @logger = nil
     @data = {}
     @mutex = Mutex.new

@@ -25,20 +25,6 @@ pkgs.mkShell {
     export BUNDLE_PATH=$GEM_HOME
     export PATH=$PATH:$GEM_PATH
 
-    export CACHE=10
-
-    if [ -f .token ]; then
-      export TELEGRAM_BOT_TOKEN=$(cat .token)
-    else
-      echo "Warning: .token file not found. Set TELEGRAM_BOT_TOKEN manually."
-    fi
-
-    if [ -f .token_dev ]; then
-      export DEV_BOT_TOKEN=$(cat .token_dev)
-    else
-      echo "Warning: .token_dev file not found. Set DEV_BOT_TOKEN manually."
-    fi
-
     mkdir -p data data/cache data/debug
 
     if [ ! -d "$GEM_HOME" ]; then

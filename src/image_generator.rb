@@ -4,36 +4,36 @@ module Raspishika
     IMAGE_HEIGHT = 1000
     CACHE_DIR = File.expand_path('../data/cache', __dir__).freeze
     FileUtils.mkdir_p CACHE_DIR
-  
+
     @logger = nil
-  
+
     class << self
       attr_accessor :logger
     end
-  
+
     def self.generate(page, schedule, **group_info)
       logger&.info "Generating image for #{group_info}"
-  
+
       html = generate_html(schedule, group_info[:group], group_info[:department])
       file_path = File.expand_path("table_template.html", CACHE_DIR)
       File.write(file_path, html)
-  
+
       page.set_viewport_size(width: IMAGE_WIDTH, height: IMAGE_HEIGHT)
       page.goto "file://#{File.absolute_path(file_path)}", timeout: ScheduleParser::TIMEOUT * 1000
       sleep 1
-  
+
       output_path = image_path(**group_info)
       page.screenshot(path: output_path, timeout: ScheduleParser::TIMEOUT * 1000)
-  
+
       logger&.debug "Screenshot saved to #{output_path}"
     end
-  
+
     def self.image_path(sid:, gr:, group:, department:, **)
       File.expand_path("#{sid}_#{gr}_#{department}_#{group}.png", CACHE_DIR)
     end
-  
+
     private
-  
+
     def self.generate_html(schedule, group, department)
       <<~HTML
       <!DOCTYPE html>
@@ -89,7 +89,7 @@ module Raspishika
       </html>
       HTML
     end
-  
+
     def self.generate_table_body schedule
       schedule.map do |row|
         <<~HTML
@@ -101,7 +101,7 @@ module Raspishika
         HTML
       end.join"\n"
     end
-  
+
     def self.generate_row row
       row[:days].map do |day|
         css_class = "#{day[:replaced] ? ' replaced' : ''} #{day[:type].to_s}"

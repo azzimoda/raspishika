@@ -19,7 +19,7 @@ GEM
       dry-types (~> 1.8, >= 1.8.2)
       ice_nine (~> 0.11)
       zeitwerk (~> 2.6)
-    dry-types (1.8.2)
+    dry-types (1.8.3)
       bigdecimal (~> 3.0)
       concurrent-ruby (~> 1.0)
       dry-core (~> 1.0)
@@ -45,7 +45,7 @@ GEM
     mime-types (3.7.0)
       logger
       mime-types-data (~> 3.2025, >= 3.2025.0507)
-    mime-types-data (3.2025.0603)
+    mime-types-data (3.2025.0610)
     minitest (5.25.5)
     multipart-post (2.4.1)
     net-http (0.6.0)
@@ -73,6 +73,7 @@ GEM
     racc (1.8.1)
     rufus-scheduler (3.9.2)
       fugit (~> 1.1, >= 1.11.1)
+    slop (4.10.1)
     telegram-bot-ruby (2.4.0)
       dry-struct (~> 1.6)
       faraday (~> 2.0)
@@ -99,6 +100,7 @@ DEPENDENCIES
   nokogiri (~> 1.18.8)
   playwright-ruby-client (~> 1.52)
   rufus-scheduler (~> 3.9)
+  slop (~> 4.10)
   telegram-bot-ruby (~> 2.1)
 
 BUNDLED WITH
