@@ -137,7 +137,7 @@ module Raspishika
       return '' if @data.all? { it[:pairs].empty? }
   
       @data.map do |day|
-        if [:event, :iga, :practice].any? { |type| day[:pairs].all? { it[:type] == type } }
+        if [:event, :iga, :practice, :vacation].any? { |t| day[:pairs].all? { it[:type] == t } }
           next "📅 #{day[:weekday]}, #{day[:date]}: *#{day[:pairs][0][:content]}*"
         end
   
@@ -163,8 +163,8 @@ module Raspishika
               pair[:content][:teacher]
             end
             "\n_#{pair[:title]}_\n*#{pair[:content][:discipline]}*\n#{teacher}"
-  
-          when :event, :iga, :practice
+
+          when :event, :iga, :practice, :vacation
             " — *#{pair[:content]}*"
           end
   

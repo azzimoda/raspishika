@@ -243,6 +243,8 @@ module Raspishika
         {type: :practice, content: day_cell.text.strip}
       when day_cell['class']&.include?('head_urok_session')
         {type: :session, content: day_cell.text.strip}
+      when day_cell['class']&.include?('head_urok_kanik')
+        {type: :vacation, content: day_cell.text.strip}
       when (day_cell.css('table.zachet').any? || day_cell.css('table.difzachet').any? ||
             day_cell.css('table.ekzamen').any?)
         {type: :exam, title: day_cell.at_css('.head_ekz').text.strip, content: {

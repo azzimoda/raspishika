@@ -2,7 +2,7 @@ module Raspishika
   module ImageGenerator
     IMAGE_WIDTH = 1400
     IMAGE_HEIGHT = 1000
-    CACHE_DIR = File.expand_path('../data/cache', __dir__).freeze
+    CACHE_DIR = File.expand_path('data/cache', ROOT_DIR).freeze
     FileUtils.mkdir_p CACHE_DIR
 
     @logger = nil
@@ -106,7 +106,7 @@ module Raspishika
       row[:days].map do |day|
         css_class = "#{day[:replaced] ? ' replaced' : ''} #{day[:type].to_s}"
         case day[:type]
-        when :event, :iga, :practice, :session
+        when :event, :iga, :practice, :session, :vacation
           "<td class='#{css_class}'><span>#{day[:content]}</span><br></td>"
         when :exam, :consultation
           <<~HTML

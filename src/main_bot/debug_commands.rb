@@ -1,5 +1,5 @@
-require_relative 'user'
-require_relative 'cache'
+require_relative '../user'
+require_relative '../cache'
 
 module Raspishika
   module DebugCommands

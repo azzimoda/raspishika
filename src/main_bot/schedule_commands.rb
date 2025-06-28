@@ -1,3 +1,5 @@
+require_relative '../schedule'
+
 module Raspishika
   class Bot
     private
