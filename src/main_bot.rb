@@ -18,6 +18,17 @@ end
 module Raspishika
   class Bot
     TOKEN_FILE = File.expand_path('config/token', ROOT_DIR)
+    TOKEN = if OPTIONS[:token]
+      OPTIONS[:token]
+    else
+      begin
+        File.read(TOKEN_FILE).chomp
+      rescue Errno::ENOENT => e
+        logger.fatal e.detailed_message
+        logger.fatal "Please provide a token in #{TOKEN_FILE} or use --token option."
+        exit
+      end
+    end
     THEAD_POOL_SIZE = 20
     LONG_CACHE_TIME = 24*60*60 # 24 hours
 
@@ -31,19 +42,13 @@ module Raspishika
       pair_sending_on: 'Вкл. рассылку перед парами',
       pair_sending_off: 'Выкл. рассылку перед парами',
       quick_schedule: 'Быстрое расписание',
-    }
+    }.freeze
 
     DEFAULT_KEYBOARD = [
       [LABELS[:left]],
       [LABELS[:tomorrow], LABELS[:week]],
       [LABELS[:quick_schedule], LABELS[:select_group], LABELS[:configure_sending]],
-    ]
-    if ENV["DEBUG_CM"]
-      DEFAULT_KEYBOARD.push(
-        ["/debug user_info", "/debug set_user_info", "/debug delete_user", "/debug clear_cache"]
-      )
-    end
-    DEFAULT_KEYBOARD.freeze
+    ].freeze
     DEFAULT_REPLY_MARKUP = {
       keyboard: DEFAULT_KEYBOARD,
       resize_keyboard: true,
@@ -65,7 +70,7 @@ module Raspishika
       {command: 'stop', description: 'Остановить бота и удалить данные о себе'},
       {command: 'help', description: 'Помощь'},
       {command: 'start', description: 'Запуск бота'}
-    ]
+    ].freeze
 
     def initialize
       @logger = Raspishika::Logger.new
@@ -74,16 +79,7 @@ module Raspishika
       @thread_pool = Concurrent::FixedThreadPool.new THEAD_POOL_SIZE
       @retries = 0
 
-      @token = if OPTIONS[:token]
-        OPTIONS[:token]
-      else
-        begin
-          File.read(TOKEN_FILE).chomp
-        rescue Errno::ENOENT
-          logger.fatal "No `#{TOKEN_FILE}` file found."
-          exit
-        end
-      end
+      @token = TOKEN
       @run = true
       @dev_bot = DevBot.new main_bot: self, logger: @logger
       @username = nil
@@ -106,13 +102,13 @@ module Raspishika
         @bot = bot
         @username = bot.api.get_me.username
         logger.debug "Bot's username: #{@username}"
-  
+
         report "Bot started."
-  
+
         bot.api.set_my_commands(commands: MY_COMMANDS)
-  
+
         schedule_pair_sending
-        if ENV['DAILY'].nil? || ENV['DAILY'] != ""
+        if OPTIONS[:daily]
           @sending_thread = Thread.new(self, &:daily_sending_loop)
         else
           logger.info "Daily sending is disabled"
@@ -246,7 +242,7 @@ module Raspishika
     end
 
     def debug_command(message, user)
-      return unless ENV['DEBUG_CM']
+      return unless OPTIONS[:debug_commands]
 
       debug_command_name = message.text.split(' ').last
       logger.info "Calling test #{debug_command_name}..."
@@ -389,7 +385,8 @@ module Raspishika
         when '/start' then start_message message, user
         when '/help' then help_message message, user
         when '/set_group', LABELS[:select_group].downcase then configure_group message, user
-        when ->(t) { user.state.start_with?('select_department') && user.departments.map(&:downcase).include?(t) }
+        when ->(t) { user.state.start_with?('select_department') &&
+                     user.departments.map(&:downcase).include?(t) }
           select_department message, user
         when ->(t) { user.groups.keys.map(&:downcase).include?(t) }
           select_group message, user

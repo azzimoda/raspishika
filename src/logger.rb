@@ -4,16 +4,18 @@ module Raspishika
   class Logger
     def initialize
       @log_file = File.expand_path("../data/debug/#{Time.now.iso8601}.log", __dir__)
-  
-      level = case ENV['LOGGER']&.downcase
+
+      level = case OPTIONS[:log_level]
       when 'debug' then ::Logger::DEBUG
       when 'info' then ::Logger::INFO
       when 'warn' then ::Logger::WARN
       when 'error' then ::Logger::ERROR
       when 'fatal' then ::Logger::FATAL
-      else ::Logger::DEBUG
+      else
+        puts "Unkonwn log level #{OPTIONS[:log_level]}, defaulting to debug"
+        ::Logger::DEBUG
       end
-  
+
       @stderr_logger = ::Logger.new($stderr, level:)
       @file_logger = ::Logger.new(log_file, level:)
     end

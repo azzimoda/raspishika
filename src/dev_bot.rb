@@ -35,8 +35,10 @@ module Raspishika
         end
       end
       @admin_chat_id = File.read(ADMIN_CHAT_ID_FILE).chomp.to_i rescue nil
-      @run = ENV['DEV_BOT'] ? ENV['DEV_BOT'] == 'true' : true
+      @run = OPTIONS[:dev_bot]
       @retries = 0
+
+      # TODO: Add schdueling of general statistics sending.
 
       logger.info('DevBot') { "Token: #{@token.inspect}" }
       logger.info('DevBot') { "Dev bot is disabled" } unless @run
