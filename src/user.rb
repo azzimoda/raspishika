@@ -20,8 +20,10 @@ module Raspishika
       def delete user
         @mutex.synchronize { @users.delete_if { |id, _| id == user.id } }
       end
-  
+
       def backup
+        @users.select! { |id, user| user.department && user.group }
+
         FileUtils.mkdir_p File.dirname TEMP_FILE
         FileUtils.mkdir_p File.dirname BACKUP_FILE
   
