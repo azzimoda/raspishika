@@ -6,8 +6,7 @@ shell.nix
 .git/
 .gitignore
 
-tests/
-
-data/
-
 node_modules/
+tests/
+config/
+data/

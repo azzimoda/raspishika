@@ -42,8 +42,8 @@ pkgs.mkShell {
 
     alias run='bundle exec ruby src/main.rb'
 
-    echo TELEGRAM_BOT_TOKEN=$TELEGRAM_BOT_TOKEN
-    echo DEV_BOT_TOKEN=$DEV_BOT_TOKEN
+    echo Main bot token: $(cat config/token)
+    echo Dev bot token: $(cat config/token_dev)
     echo "Use 'run' to run the bot (alias of 'bundle exec ruby src/main.rb')"
   '';
 }

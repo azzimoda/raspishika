@@ -105,7 +105,7 @@ module Raspishika
       bot.api.send_message(chat_id: @admin_chat_id, text:)
     rescue Telegram::Bot::Exceptions::ResponseError => e
       logger.error('DevBot') { "Telegram API error in `#report`: #{e.detailed_message}" }
-      logger.error('DevBot') { "Traceback:\n#{e.traceback.join("\n")}" }
+      logger.error('DevBot') { "BACKTRACE:\n#{e.backtrace.join("\n")}" }
     end
 
     private
