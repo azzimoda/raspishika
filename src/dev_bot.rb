@@ -1,4 +1,5 @@
 require 'json'
+require 'rufus-scheduler'
 require 'telegram/bot'
 
 require_relative 'user'
@@ -38,7 +39,7 @@ module Raspishika
       @run = OPTIONS[:dev_bot]
       @retries = 0
 
-      # TODO: Add schdueling of general statistics sending.
+      @scheduler = Rufus::Scheduler.new
 
       logger.info('DevBot') { "Token: #{@token.inspect}" }
       logger.info('DevBot') { "Dev bot is disabled" } unless @run
@@ -51,6 +52,10 @@ module Raspishika
         logger.warn('DevBot') { "Token for statistics bot is not set! It won't run." }
         return
       end
+
+      logger.info('DevBot') { "Scheduling statistics sending..." }
+      @scheduler.cron("0 6 * * *") { send_general_statistics }
+      @scheduler.cron("0 18 * * *") { send_general_statistics }
 
       logger.info('DevBot') { "Starting statistics bot..." }
       Telegram::Bot::Client.run(@token) do |bot|
@@ -116,7 +121,7 @@ module Raspishika
       when ->(*) { @admin_chat_id.nil? } then return
       when %r(/log\s+(\d+)) then send_log lines: Regexp.last_match(1).to_i
       when '/log' then send_log
-      when '/general' then send_general_statistics message
+      when '/general' then send_general_statistics
       when '/departments' then send_departments message
       when '/groups' then send_groups message
       when '/configuration' then send_configuration_statistics message
@@ -179,7 +184,7 @@ module Raspishika
       bot.api.send_message(chat_id: message.chat.id, text:, parse_mode: 'Markdown')
     end
 
-    def send_general_statistics message
+    def send_general_statistics
       statistics = collect_statistics
 
       total_chats = statistics[:private_chats].size + statistics[:group_chats].size
@@ -240,7 +245,7 @@ module Raspishika
         Total commands used: #{total_commands_week}
         Schedule commands used: #{schedule_commands_week}
       MARKDOWN
-      bot.api.send_message(chat_id: message.chat.id, text:)
+      bot.api.send_message(chat_id: @admin_chat_id, text:)
     end
 
     def send_new_users(message, days: 1)
