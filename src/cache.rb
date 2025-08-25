@@ -9,13 +9,15 @@ module Raspishika
       attr_accessor :logger
     end
 
-    def self.fetch(key, expires_in: DEFAULT_CACHE_EXPIRATION, allow_nil: false, log: true, &block)
+    # If expires_in is nil, the cache will not expire. If expires_in is 0, the will be always expired.
+    def self.fetch(key, expires_in: DEFAULT_CACHE_EXPIRATION, allow_nil: false, log: true, no_mutex: false, &block)
       if DEFAULT_CACHE_EXPIRATION.zero?
         logger&.debug "Skipping caching for #{key.inspect} because of environment configuration..." if log
         return block.call
       end
 
-      @mutex.synchronize do
+      # TODO: Come up with a better way to prevent Mutex deadlocks.
+      foo = lambda do
         entry = @data[key]
         if (entry &&
             (allow_nil || entry[:value]) &&
@@ -27,6 +29,12 @@ module Raspishika
           @data[key] = { value: block.call, timestamp: Time.now }
           @data[key][:value]
         end
+      end
+
+      if no_mutex
+        foo.call
+      else
+        @mutex.synchronize { foo.call }
       end
     end
 

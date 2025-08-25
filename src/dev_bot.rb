@@ -151,7 +151,7 @@ module Raspishika
           parse_mode: 'Markdown'
         )
       else
-        bot.api.send_message(chat_id: message.chat.id, text: "No log.")
+        bot.api.send_message(chat_id: @admin_chat_id, text: "No log.")
       end
     end
 

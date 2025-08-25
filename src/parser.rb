@@ -12,6 +12,14 @@ module Raspishika
     TIMEOUT = 30
     MAX_RETRIES = 3
     BASE_URL = 'https://mnokol.tyuiu.ru'.freeze
+    HEADERS = {
+      'User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
+      'Referer' => 'https://coworking.tyuiu.ru/shs/all_t/',
+      'Accept-Language' => 'ru-RU,ru;q=0.9',
+      'Sec-Fetch-Dest' => 'document',
+      'Sec-Fetch-Mode' => 'navigate',
+      'Connection' => 'keep-alive'
+  }.freeze
   
     def initialize(logger: nil)
       @logger = logger
@@ -84,17 +92,18 @@ module Raspishika
             'div.com-content-article__body iframe',
             timeout: TIMEOUT * 1000
           )
-          page = iframe.content_frame
+          frame = iframe.content_frame
   
-          select = page.wait_for_selector('#groups', timeout: TIMEOUT * 1000)
+          select = frame.wait_for_selector('#groups', timeout: TIMEOUT * 1000)
           raise "Failed to find groups selector" if select.nil?
   
-          page.eval_on_selector_all(
+          frame.eval_on_selector_all(
             '#groups option',
             'els => els.map(el => ({ text: el.textContent.trim(), value: el.value, sid: el.getAttribute("sid") }))'
           )
         end
-  
+        page.close
+
         options.each do |opt|
           next if opt['value'] == '0'
           groups[opt['text']] = { gr: opt['value'], sid: opt['sid'] }
@@ -104,6 +113,7 @@ module Raspishika
       groups
     rescue => e
       logger&.error "Unhandled error in `#fetch_groups`: #{e.detailed_message}"
+      logger&.error "Backtrace:\n#{e.backtrace.join("\n")}"
       nil
     end
   
@@ -119,51 +129,96 @@ module Raspishika
       logger&.debug "URL: #{url}"
   
       html = nil
+      schedule = nil
       use_browser do |browser|
         page = browser.new_page
-  
-          page.set_extra_http_headers(
-          'Referer' => 'https://mnokol.tyuiu.ru/',
-          'Accept-Language' => 'ru-RU,ru;q=0.9',
-          'Sec-Fetch-Dest' => 'document',
-          'Sec-Fetch-Mode' => 'navigate'
-        )
-  
         page.goto('https://mnokol.tyuiu.ru/', timeout: TIMEOUT * 1000)
         sleep 1
-  
+        page.set_extra_http_headers(**HEADERS)
+
         html = nil
-        try_timeout do
+        # First try
+        try_timeout times: 1, raise_on_failure: false do
           page.goto(url, timeout: TIMEOUT * 1000)
-  
-          page.mouse.move(0, rand(100..300))
+          page.mouse.move(0, rand(100..300)) # TODO: I'm not sure whether it helps or not; test parser without it once.
           sleep 0.5
-  
+
           logger&.debug "Waiting for table..."
           html = page.content
           page.wait_for_selector('#main_table', timeout: TIMEOUT * 1000)
           html = page.content
         end
-  
+        break unless html
+
         doc = Nokogiri::HTML html
-        schedule = parse_schedule_table(doc.at_css('table#main_table')) || "Расписание не найдено"
-        raise "Failed to find table#main_table." unless schedule
-  
+        schedule = parse_schedule_table(doc.at_css('table#main_table'))
+        break unless schedule
+
         ImageGenerator.generate(page, schedule, **group_info)
-        schedule
-      rescue Playwright::TimeoutError => e
-        logger&.error "Timeout error while parsing schedule: #{e.detailed_message}"
-        logger&.debug e.backtrace.join"\n"
-        nil
-      ensure
-        debug_dir = File.join('data', 'debug')
-        Dir.mkdir(debug_dir) unless Dir.exist?(debug_dir)
-        # Saving original HTML into data/debug/schedule.html for debug
-        File.write(File.join(debug_dir, 'schedule.html'), html)
+        page.close
+        return schedule
       end
+
+      unless schedule
+        logger.warn "Failed to load page, trying to update department ID..."
+
+        # Update department ID for all users in the group.
+        department_url = Cache.fetch(:departments, expires_in: Bot::LONG_CACHE_TIME, no_mutex: true) do
+          fetch_departments[group_info[:department]]
+        end
+        new_group_info = Cache.fetch(:"groups_#{group_info[:department].downcase}", expires_in: 0, no_mutex: true) do
+          fetch_groups(department_url)[group_info[:group]]
+        end
+
+        User.users.values.each do |user|
+          next unless user.department == group_info[:sid] && user.group == group_info[:gr]
+
+          user.department = new_group_info[:sid]
+        end
+
+        logger&.debug "Fetched group info: #{new_group_info.inspect})"
+        url = "#{base_url}?action=group&union=0&sid=#{new_group_info[:sid]}&gr=#{new_group_info[:gr]}&year=#{Time.now.year}&vr=1"
+        logger&.debug "URL: #{url}"
+
+        use_browser do |browser|
+          page = browser.new_page
+          page.goto('https://mnokol.tyuiu.ru/', timeout: TIMEOUT * 1000)
+          sleep 1
+          page.set_extra_http_headers(**HEADERS)
+
+          # TODO: Second try with updated department id.
+          try_timeout do
+            page.goto(url, timeout: TIMEOUT * 1000)
+            page.mouse.move(0, rand(100..300)) # TODO: I'm not sure whether it helps or not; test parser without it once.
+            sleep 0.5
+
+            logger&.debug "Waiting for table..."
+            html = page.content
+            page.wait_for_selector('#main_table', timeout: TIMEOUT * 1000)
+            html = page.content
+
+            doc = Nokogiri::HTML html
+            schedule = parse_schedule_table(doc.at_css('table#main_table')) || "Расписание не найдено"
+            raise "Failed to find table#main_table." unless schedule
+
+            ImageGenerator.generate(page, schedule, **(group_info.merge new_group_info))
+            page.close
+            return schedule
+          end
+        end
+      end
+    rescue Playwright::TimeoutError => e
+      logger&.error "Timeout error while parsing schedule: #{e.detailed_message}"
+      logger&.debug e.backtrace.join"\n"
+      nil
+    ensure
+      debug_dir = File.join('data', 'debug')
+      Dir.mkdir(debug_dir) unless Dir.exist?(debug_dir)
+      # Saving original HTML into data/debug/schedule.html for debug
+      File.write(File.join(debug_dir, 'schedule.html'), html)
     end
-  
-    def try_timeout(times: MAX_RETRIES, &block)
+
+    def try_timeout(times: MAX_RETRIES, raise_on_failure: true, &block)
       retries = times
       delay = 1
       begin
@@ -177,7 +232,7 @@ module Raspishika
           retry
         else
           logger&.error "Failed to load page after #{times} retries"
-          raise e
+          raise e if raise_on_failure
         end
       end
     end
