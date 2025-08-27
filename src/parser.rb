@@ -62,12 +62,13 @@ module Raspishika
   
       url = "#{BASE_URL}/site/index.php?option=com_content&view=article&id=1582&Itemid=247"
       doc = Nokogiri::HTML(URI.open(url))
-  
-      doc.css('ul.mod-menu li.col-lg.col-md-6 a').map do |link|
+
+      deps = doc.css('ul.mod-menu li.col-lg.col-md-6 a').map do |link|
         department_name = link.text.strip
         department_url = link['href'].gsub('&amp;', '&')
         [department_name, "#{BASE_URL}#{department_url}"]
-      end.to_h.filter! do |name, url|
+      end.to_h
+      deps.filter! do |name, url|
         name.downcase.then { it.include?('отделение') || it == 'заочное обучение' }
       end.tap { logger&.debug it }
     rescue => e
@@ -163,12 +164,19 @@ module Raspishika
         logger.warn "Failed to load page, trying to update department ID..."
 
         # Update department ID for all users in the group.
-        department_url = Cache.fetch(:departments, expires_in: Bot::LONG_CACHE_TIME, no_mutex: true) do
-          fetch_departments[group_info[:department]]
+        deps = Cache.fetch(:departments, expires_in: 0, no_mutex: true) do
+          fetch_departments
         end
-        new_group_info = Cache.fetch(:"groups_#{group_info[:department].downcase}", expires_in: 0, no_mutex: true) do
-          fetch_groups(department_url)[group_info[:group]]
+        department_url = deps[group_info[:department]]
+        return logger&.error "Failed department url by name #{group_info[:department].inspect}" unless department_url
+
+        groups = Cache.fetch(:"groups_#{group_info[:department].downcase}", expires_in: 0, no_mutex: true) do
+          fetch_groups(department_url)
         end
+        return unless groups
+
+        new_group_info = groups[group_info[:group]]
+        return logger&.error "Failed to group info by group name #{group_info[:group].inspect}" unless new_group_info
 
         User.users.values.each do |user|
           next unless user.department == group_info[:sid] && user.group == group_info[:gr]
