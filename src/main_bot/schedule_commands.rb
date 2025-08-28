@@ -5,34 +5,34 @@ module Raspishika
     private
 
     def send_week_schedule(_message, user, quick: nil)
-      group_info = if quick
-        quick
-      else
-        unless user.department && user.group
-          bot.api.send_message(chat_id: user.id, text: "Группа не выбрана")
-          return configure_group(_message, user)
-        end
+      get_group_info = lambda do
+        group_info = if quick
+          quick
+        else
+          unless user.department && user.group
+            bot.api.send_message(chat_id: user.id, text: "Группа не выбрана")
+            return configure_group(_message, user)
+          end
 
-        unless user.department_name
-          bot.api.send_message(
-            chat_id: user.id,
-            text:
-              "В связи с техническими проблемами нужно выбрать группу заново. " \
-              "Это нужно сделать один раз, больше такого не повторится."
-          )
-          return configure_group(_message, user)
-        end
+          unless user.department_name
+            bot.api.send_message(
+              chat_id: user.id,
+              text:
+                "В связи с техническими проблемами нужно выбрать группу заново. " \
+                "Это нужно сделать один раз, больше такого не повторится."
+            )
+            return configure_group(_message, user)
+          end
 
-        user.group_info
+          user.group_info
+        end
       end
 
       sent_message = send_loading_message user.id
 
-      schedule = Cache.fetch(:"schedule_#{group_info[:sid]}_#{group_info[:gr]}") do
-        parser.fetch_schedule group_info
-      end
+      schedule = parser.fetch_schedule get_group_info.call
 
-      file_path = ImageGenerator.image_path(**group_info)
+      file_path = ImageGenerator.image_path(**get_group_info.call)
       make_photo = -> { Faraday::UploadIO.new(file_path, 'image/png') }
       reply_markup = default_reply_markup user.id
 

@@ -19,9 +19,9 @@ module Raspishika
       'Sec-Fetch-Dest' => 'document',
       'Sec-Fetch-Mode' => 'navigate',
       'Connection' => 'keep-alive'
-  }.freeze
-  
-    def initialize(logger: nil)
+    }.freeze
+
+    def initialize(logger: Logger.new($stdout))
       @logger = logger
       @thread = nil
       @browser = nil
@@ -56,174 +56,176 @@ module Raspishika
     def use_browser(&block)
       @mutex.synchronize { block.call @browser }
     end
-  
-    def fetch_departments
-      logger&.info "Fetching departments..."
-  
-      url = "#{BASE_URL}/site/index.php?option=com_content&view=article&id=1582&Itemid=247"
-      doc = Nokogiri::HTML(URI.open(url))
 
-      deps = doc.css('ul.mod-menu li.col-lg.col-md-6 a').map do |link|
-        department_name = link.text.strip
-        department_url = link['href'].gsub('&amp;', '&')
-        [department_name, "#{BASE_URL}#{department_url}"]
-      end.to_h
-      deps.filter! do |name, url|
-        name.downcase.then { it.include?('отделение') || it == 'заочное обучение' }
-      end.tap { logger&.debug it }
+    def fetch_departments
+      Cache.fetch :departments, expires_in: Bot::LONG_CACHE_TIME do
+        logger.info "Fetching departments..."
+
+        url = "#{BASE_URL}/site/index.php?option=com_content&view=article&id=1582&Itemid=247"
+        doc = Nokogiri::HTML(URI.open(url))
+
+        deps = doc.css('ul.mod-menu li.col-lg.col-md-6 a').map do |link|
+          department_name = link.text.strip
+          department_url = link['href'].gsub('&amp;', '&')
+          [department_name, "#{BASE_URL}#{department_url}"]
+        end.to_h
+        deps.select! do |name, url|
+          name.downcase.then { it.include?('отделение') || it == 'заочное обучение' }
+        end
+        deps.tap { logger.debug it }
+      end
     rescue => e
-      logger&.error "Unhandled error in `#fetch_departments`: #{e.detailed_message}"
+      logger.error "Unhandled error in `#fetch_departments`: #{e.detailed_message}"
+      logger.error "Backtrace:\n#{e.backtrace.join("\n")}"
       nil
     end
   
-    def fetch_groups(department_url)
+    def fetch_groups(department_url, department_name)
       if department_url.nil? || department_url.empty?
         raise ArgumentError, "department_url is `nil` or empty: #{department_url.inspect}"
       end
-  
-      logger&.info "Fetching groups for #{department_url}"
-  
-      groups = {}
-      use_browser do |browser|
-        page = browser.new_page
-        options = try_timeout do
-          page.goto(department_url, timeout: TIMEOUT * 1000)
-  
-          iframe = page.wait_for_selector(
-            'div.com-content-article__body iframe',
-            timeout: TIMEOUT * 1000
-          )
-          frame = iframe.content_frame
-  
-          select = frame.wait_for_selector('#groups', timeout: TIMEOUT * 1000)
-          raise "Failed to find groups selector" if select.nil?
-  
-          frame.eval_on_selector_all(
-            '#groups option',
-            'els => els.map(el => ({ text: el.textContent.trim(), value: el.value, sid: el.getAttribute("sid") }))'
-          )
-        end
-        page.close
 
-        options.each do |opt|
-          next if opt['value'] == '0'
-          groups[opt['text']] = { gr: opt['value'], sid: opt['sid'] }
+      Cache.fetch(:"groups_#{department_name}", expires_in: Bot::LONG_CACHE_TIME) do
+        logger.info "Fetching groups for #{department_url}"
+
+        groups = {}
+        use_browser do |browser|
+          page = browser.new_page
+          options = try_timeout do
+            page.goto(department_url, timeout: TIMEOUT * 1000)
+
+            iframe = page.wait_for_selector(
+              'div.com-content-article__body iframe',
+              timeout: TIMEOUT * 1000
+            )
+            frame = iframe.content_frame
+
+            select = frame.wait_for_selector('#groups', timeout: TIMEOUT * 1000)
+            raise "Failed to find groups selector" if select.nil?
+
+            frame.eval_on_selector_all(
+              '#groups option',
+              'els => els.map(el => ({ text: el.textContent.trim(), value: el.value, sid: el.getAttribute("sid") }))'
+            )
+          end
+          page.close
+
+          options.each do |opt|
+            next if opt['value'] == '0'
+            groups[opt['text']] = { gr: opt['value'], sid: opt['sid'] }
+          end
         end
+
+        groups
       end
-  
-      groups
     rescue => e
-      logger&.error "Unhandled error in `#fetch_groups`: #{e.detailed_message}"
-      logger&.error "Backtrace:\n#{e.backtrace.join("\n")}"
+      logger.error "Unhandled error in `#fetch_groups`: #{e.detailed_message}"
+      logger.error "Backtrace:\n#{e.backtrace.join("\n")}"
       nil
     end
   
     def fetch_schedule(group_info)
-      logger&.info "Fetching schedule for #{group_info}"
+      logger.info "Fetching schedule for #{group_info}"
       unless group_info[:gr] && group_info[:sid]
-        logger&.error "Wrong group data"
+        logger.error "Wrong group data"
         return nil
       end
-  
+
+      if Cache.actual? :"schedule_#{group_info[:sid]}_#{group_info[:gr]}"
+        return Cache.get :"schedule_#{group_info[:sid]}_#{group_info[:gr]}"
+      end
+
       base_url = "https://coworking.tyuiu.ru/shs/all_t/sh#{group_info[:zaochnoe] ? 'z' : ''}.php"
       url = "#{base_url}?action=group&union=0&sid=#{group_info[:sid]}&gr=#{group_info[:gr]}&year=#{Time.now.year}&vr=1"
-      logger&.debug "URL: #{url}"
-  
-      html = nil
-      schedule = nil
-      use_browser do |browser|
-        page = browser.new_page
-        page.goto('https://mnokol.tyuiu.ru/', timeout: TIMEOUT * 1000)
-        sleep 1
-        page.set_extra_http_headers(**HEADERS)
+      logger.debug "URL: #{url}"
 
-        html = nil
-        # First try
-        try_timeout times: 1, raise_on_failure: false do
-          page.goto(url, timeout: TIMEOUT * 1000)
-          page.mouse.move(0, rand(100..300)) # TODO: I'm not sure whether it helps or not; test parser without it once.
-          sleep 0.5
+      # First try
+      html, schedule = try_get_schedule url, group_info
+      return schedule if html && schedule
 
-          logger&.debug "Waiting for table..."
-          html = page.content
-          page.wait_for_selector('#main_table', timeout: TIMEOUT * 1000)
-          html = page.content
-        end
-        break unless html
+      logger.warn "Failed to load page, trying to update department ID..."
 
-        doc = Nokogiri::HTML html
-        schedule = parse_schedule_table(doc.at_css('table#main_table'))
-        break unless schedule
+      new_group_info = update_department_id group_info
+      group_info = group_info.merge new_group_info
+      url = "#{base_url}?action=group&union=0&sid=#{new_group_info[:sid]}&gr=#{new_group_info[:gr]}&year=#{Time.now.year}&vr=1"
+      logger.debug "URL: #{url}"
 
-        ImageGenerator.generate(page, schedule, **group_info)
-        page.close
-        return schedule
-      end
-
-      unless schedule
-        logger.warn "Failed to load page, trying to update department ID..."
-
-        # Update department ID for all users in the group.
-        deps = Cache.fetch(:departments, expires_in: 0, no_mutex: true) do
-          fetch_departments
-        end
-        department_url = deps[group_info[:department]]
-        return logger&.error "Failed department url by name #{group_info[:department].inspect}" unless department_url
-
-        groups = Cache.fetch(:"groups_#{group_info[:department].downcase}", expires_in: 0, no_mutex: true) do
-          fetch_groups(department_url)
-        end
-        return unless groups
-
-        new_group_info = groups[group_info[:group]]
-        return logger&.error "Failed to group info by group name #{group_info[:group].inspect}" unless new_group_info
-
-        User.users.values.each do |user|
-          next unless user.department == group_info[:sid] && user.group == group_info[:gr]
-
-          user.department = new_group_info[:sid]
-        end
-
-        logger&.debug "Fetched group info: #{new_group_info.inspect})"
-        url = "#{base_url}?action=group&union=0&sid=#{new_group_info[:sid]}&gr=#{new_group_info[:gr]}&year=#{Time.now.year}&vr=1"
-        logger&.debug "URL: #{url}"
-
-        use_browser do |browser|
-          page = browser.new_page
-          page.goto('https://mnokol.tyuiu.ru/', timeout: TIMEOUT * 1000)
-          sleep 1
-          page.set_extra_http_headers(**HEADERS)
-
-          # TODO: Second try with updated department id.
-          try_timeout do
-            page.goto(url, timeout: TIMEOUT * 1000)
-            page.mouse.move(0, rand(100..300)) # TODO: I'm not sure whether it helps or not; test parser without it once.
-            sleep 0.5
-
-            logger&.debug "Waiting for table..."
-            html = page.content
-            page.wait_for_selector('#main_table', timeout: TIMEOUT * 1000)
-            html = page.content
-
-            doc = Nokogiri::HTML html
-            schedule = parse_schedule_table(doc.at_css('table#main_table')) || "Расписание не найдено"
-            raise "Failed to find table#main_table." unless schedule
-
-            ImageGenerator.generate(page, schedule, **(group_info.merge new_group_info))
-            page.close
-            return schedule
-          end
-        end
-      end
+      # Second try with updated department ID
+      html, schedule = try_get_schedule url, group_info, first_try: false
+      return schedule
     rescue Playwright::TimeoutError => e
-      logger&.error "Timeout error while parsing schedule: #{e.detailed_message}"
-      logger&.debug e.backtrace.join"\n"
+      logger.error "Timeout error while parsing schedule: #{e.detailed_message}"
+      logger.debug e.backtrace.join"\n"
       nil
     ensure
       debug_dir = File.join('data', 'debug')
       Dir.mkdir(debug_dir) unless Dir.exist?(debug_dir)
       # Saving original HTML into data/debug/schedule.html for debug
       File.write(File.join(debug_dir, 'schedule.html'), html)
+    end
+
+    def try_get_schedule(url, group_info, first_try: true)
+      html, schedule = nil
+      use_browser do |browser|
+        page = browser.new_page
+        page.goto('https://mnokol.tyuiu.ru/', timeout: TIMEOUT * 1000)
+        sleep 1
+        page.set_extra_http_headers(**HEADERS)
+
+        kwargs = first_try ? {times: 1, raise_on_failure: false} : {}
+        try_timeout(**kwargs) do
+          html = nil
+          page.goto(url, timeout: TIMEOUT * 1000)
+          html = page.content
+          sleep 0.5
+
+          logger.debug "Waiting for table..."
+          page.wait_for_selector('#main_table', timeout: TIMEOUT * 1000)
+          html = page.content
+        end
+
+        unless html
+          page.close
+          return nil if first_try
+          raise "Failed to load page after #{MAX_RETRIES} retries"
+        end
+
+        doc = Nokogiri::HTML html
+        schedule = parse_schedule_table(doc.at_css('table#main_table'))
+        unless schedule
+          page.close
+          return nil if first_try
+          raise "Failed to find table#main_table."
+        end
+
+        ImageGenerator.generate(page, schedule, **group_info)
+        page.close
+      end
+      Cache.set :"schedule_#{group_info[:sid]}_#{group_info[:gr]}", schedule
+      return html, schedule
+    end
+
+    def update_department_id(group_info)
+      # Update department ID for all users in the group.
+      deps = fetch_departments
+      department_url = deps[group_info[:department]]
+      return logger.error "Failed department url by name #{group_info[:department].inspect}" unless department_url
+
+      groups = fetch_groups(department_url, group_info[:department])
+      return unless groups
+
+      new_group_info = groups[group_info[:group]]
+      return logger.error "Failed to group info by group name #{group_info[:group].inspect}" unless new_group_info
+
+      logger.debug "Fetched group info: #{new_group_info.inspect})"
+
+      User.users.values.each do |user|
+        next unless user.department == group_info[:sid] && user.group == group_info[:gr]
+
+        user.department = new_group_info[:sid]
+      end
+
+      new_group_info
     end
 
     def try_timeout(times: MAX_RETRIES, raise_on_failure: true, &block)
@@ -234,12 +236,12 @@ module Raspishika
       rescue => e
         retries -= 1
         if retries > 0
-          logger&.warn "Failed to load page, retrying... (#{retries} retries left)"
+          logger.warn "Failed to load page, retrying... (#{retries} retries left)"
           sleep delay
           delay *= 2
           retry
         else
-          logger&.error "Failed to load page after #{times} retries"
+          logger.error "Failed to load page after #{times} retries"
           raise e if raise_on_failure
         end
       end
@@ -247,12 +249,12 @@ module Raspishika
   
     def parse_schedule_table(table)
       unless table
-        logger&.warn "Table is nil: #{table.inspect}"
+        logger.warn "Table is nil: #{table.inspect}"
         return nil
       end
-  
-      logger&.info "Parsing html table..."
-  
+
+      logger.info "Parsing html table..."
+
       header_row = table.css('tr').first
       day_headers = header_row.css('td:nth-child(n+3)').map do |header|
         parts = header.children.map { |node| node.text.strip }.reject(&:empty?)
@@ -273,7 +275,7 @@ module Raspishika
         pair_number = time_cell.text.strip
         time_range = row.at_css('td:nth-child(2)')
         if time_range.nil?
-          logger&.error "Failed to parse time range."
+          logger.error "Failed to parse time range."
           return nil
         end
         time_range = time_range.text.strip

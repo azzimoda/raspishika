@@ -3,7 +3,7 @@ module Raspishika
     private
 
     def configure_group(message, user, quick: false)
-      departments = Cache.fetch(:departments, expires_in: LONG_CACHE_TIME) { parser.fetch_departments }
+      departments = parser.fetch_departments
 
       unless departments&.any?
         user.push_command_usage command: message.text, ok: false
@@ -33,10 +33,8 @@ module Raspishika
     end
 
     def select_department(message, user)
-      departments = Cache.fetch(:departments, expires_in: LONG_CACHE_TIME) { parser.fetch_departments }  
-      groups = Cache.fetch(:"groups_#{message.text.downcase}", expires_in: LONG_CACHE_TIME) do
-        parser.fetch_groups departments[message.text]
-      end
+      departments = parser.fetch_departments
+      groups = parser.fetch_groups departments[message.text], message.text
       unless groups&.any?
         user.push_command_usage command: message.text, ok: false
 

@@ -10,7 +10,7 @@ module Raspishika
     end
 
     # If expires_in is nil, the cache will not expire. If expires_in is 0, the will be always expired.
-    def self.fetch(key, expires_in: DEFAULT_CACHE_EXPIRATION, allow_nil: false, log: true, no_mutex: false, &block)
+    def self.fetch(key, expires_in: DEFAULT_CACHE_EXPIRATION, allow_nil: false, log: true, &block)
       if DEFAULT_CACHE_EXPIRATION.zero?
         logger&.debug "Skipping caching for #{key.inspect} because of environment configuration..." if log
         return block.call
@@ -31,11 +31,23 @@ module Raspishika
         end
       end
 
-      if no_mutex
+      if @mutex.locked?
         foo.call
       else
         @mutex.synchronize { foo.call }
       end
+    end
+
+    def self.actual?(key, expires_in: DEFAULT_CACHE_EXPIRATION, allow_nil: false)
+      @data[key] && (allow_nil || @data[key][:value]) && (expires_in.nil? || Time.now - entry[:timestamp] < expires_in)
+    end
+
+    def self.get(key)
+      @data[key][:value] if @data[key]
+    end
+
+    def self.set(key, value)
+      @data[key] = { value: value, timestamp: Time.now }
     end
 
     def self.clear
