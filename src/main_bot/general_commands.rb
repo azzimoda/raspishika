@@ -58,13 +58,12 @@ module Raspishika
       User.delete user
 
       bot.api.send_message(
-        chat_id: messag.chat.id,
+        chat_id: message.chat.id,
         text:
           "Ваши данные были удалены, и Вы больше не будете получать рассылки от этого бота.\n" \
-          "Спасибо за использование бота!",
+          "Спасибо за использование!",
         reply_markup: {remove_keyboard: true}.to_json
       )
     end
-
   end
 end

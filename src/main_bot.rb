@@ -384,6 +384,7 @@ module Raspishika
         case text
         when '/start' then start_message message, user
         when '/help' then help_message message, user
+        when '/stop' then stop message, user
         when '/set_group', LABELS[:select_group].downcase then configure_group message, user
         when ->(t) { user.state.start_with?('select_department') &&
                      user.departments.map(&:downcase).include?(t) }
