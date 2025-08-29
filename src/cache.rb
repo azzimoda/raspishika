@@ -77,7 +77,6 @@ module Raspishika
       end
     end
 
-<<<<<<< HEAD
     def self.set(key, value, file: false)
       new_cache = { value: value, timestamp: Time.now }
       if file
@@ -87,19 +86,6 @@ module Raspishika
       else
         (@data[key] = new_cache).dup
       end
-=======
-    def self.actual?(key, expires_in: DEFAULT_CACHE_EXPIRATION, allow_nil: false)
-      entry = @data[key]
-      entry && (allow_nil || entry[:value]) && (expires_in.nil? || Time.now - entry[:timestamp] < expires_in)
-    end
-
-    def self.get(key)
-      @data[key][:value] if @data[key]
-    end
-
-    def self.set(key, value)
-      @data[key] = { value: value, timestamp: Time.now }
->>>>>>> 58b2dc2
     end
 
     def self.clear

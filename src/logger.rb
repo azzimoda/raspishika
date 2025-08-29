@@ -5,6 +5,8 @@ module Raspishika
     def initialize
       @log_file = File.expand_path("../data/debug/#{Time.now.iso8601}.log", __dir__)
 
+      delete_old_logs
+
       level = case OPTIONS[:log_level]
       when 'debug' then ::Logger::DEBUG
       when 'info' then ::Logger::INFO
@@ -20,6 +22,11 @@ module Raspishika
       @file_logger = ::Logger.new(log_file, level:)
     end
     attr_reader :log_file
+
+    def delete_old_logs
+      files = Dir.glob(File.expand_path("../data/debug/*.log", __dir__))
+      files.sort_by { File.mtime it }.reverse.drop(100).each { File.delete it }
+    end
   
     def debug(msg, &block)
       @stderr_logger.debug(msg, &block)
