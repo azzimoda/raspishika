@@ -1,6 +1,6 @@
 module Raspishika
   module Cache
-    DEFAULT_CACHE_EXPIRATION = 10*60 # 10 minutes
+    DEFAULT_CACHE_EXPIRATION = 15*60 # 15 minutes
     @logger = nil
     @data = {}
     @mutex = Mutex.new
@@ -39,7 +39,8 @@ module Raspishika
     end
 
     def self.actual?(key, expires_in: DEFAULT_CACHE_EXPIRATION, allow_nil: false)
-      @data[key] && (allow_nil || @data[key][:value]) && (expires_in.nil? || Time.now - entry[:timestamp] < expires_in)
+      entry = @data[key]
+      entry && (allow_nil || entry[:value]) && (expires_in.nil? || Time.now - entry[:timestamp] < expires_in)
     end
 
     def self.get(key)

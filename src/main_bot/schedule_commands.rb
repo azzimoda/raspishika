@@ -48,7 +48,7 @@ module Raspishika
           parse_mode: 'Markdown',
           reply_markup:
         )
-        report("Failed to fetch schedule for #{group_info}", photo: make_photo.call, log: 20)
+        report("Failed to fetch schedule for #{get_group_info.call}", photo: make_photo.call, log: 20)
       else
         user.push_command_usage command: _message.text, ok: true
       end
