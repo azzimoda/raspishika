@@ -30,7 +30,6 @@ module Raspishika
       end
     end
     THEAD_POOL_SIZE = 20
-    LONG_CACHE_TIME = 24*60*60 # 24 hours
 
     LABELS = {
       left: 'Оставшиеся пары',

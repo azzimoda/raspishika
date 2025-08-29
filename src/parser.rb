@@ -11,6 +11,7 @@ module Raspishika
   class ScheduleParser
     TIMEOUT = 30
     MAX_RETRIES = 3
+    LONG_CACHE_TIME = 30*24*60*60 # 1 month
     BASE_URL = 'https://mnokol.tyuiu.ru'.freeze
     HEADERS = {
       'User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
@@ -58,7 +59,7 @@ module Raspishika
     end
 
     def fetch_departments
-      Cache.fetch :departments, expires_in: Bot::LONG_CACHE_TIME do
+      Cache.fetch :departments, expires_in: LONG_CACHE_TIME, file: true do
         logger.info "Fetching departments..."
 
         url = "#{BASE_URL}/site/index.php?option=com_content&view=article&id=1582&Itemid=247"
@@ -79,13 +80,20 @@ module Raspishika
       logger.error "Backtrace:\n#{e.backtrace.join("\n")}"
       nil
     end
-  
+
+    def fetch_all_groups(departments_urls)
+      logger.info "Fetching all groups..."
+      Cache.fetch :groups, expires_in: LONG_CACHE_TIME, file: true do
+        departments_urls.each_with_object({}) { |(name, url), groups| groups[name] = fetch_groups url, name }
+      end
+    end
+
     def fetch_groups(department_url, department_name)
       if department_url.nil? || department_url.empty?
         raise ArgumentError, "department_url is `nil` or empty: #{department_url.inspect}"
       end
 
-      Cache.fetch(:"groups_#{department_name}", expires_in: Bot::LONG_CACHE_TIME) do
+      Cache.fetch :"groups_#{department_name}", expires_in: LONG_CACHE_TIME, file: true do
         logger.info "Fetching groups for #{department_url}"
 
         groups = {}
