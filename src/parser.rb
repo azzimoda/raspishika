@@ -4,23 +4,16 @@ require 'uri'
 require 'cgi'
 require 'playwright' # NOTE: Playwright is synchronouse YET
 require 'timeout'
+require 'prettyprint'
 
 require_relative 'image_generator'
 
 module Raspishika
   class ScheduleParser
-    TIMEOUT = 30
+    TIMEOUT = 15
     MAX_RETRIES = 3
     LONG_CACHE_TIME = 30*24*60*60 # 1 month
     BASE_URL = 'https://mnokol.tyuiu.ru'.freeze
-    HEADERS = {
-      'User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
-      'Referer' => 'https://coworking.tyuiu.ru/shs/all_t/',
-      'Accept-Language' => 'ru-RU,ru;q=0.9',
-      'Sec-Fetch-Dest' => 'document',
-      'Sec-Fetch-Mode' => 'navigate',
-      'Connection' => 'keep-alive'
-    }.freeze
 
     def initialize(logger: Logger.new($stdout))
       @logger = logger
@@ -174,11 +167,13 @@ module Raspishika
 
     def try_get_schedule(url, group_info, first_try: true)
       html, schedule = nil
+      headers = generate_headers
+      logger.debug "HEADERS: #{headers.pretty_inspect}"
       use_browser do |browser|
         page = browser.new_page
         page.goto('https://mnokol.tyuiu.ru/', timeout: TIMEOUT * 1000)
         sleep 1
-        page.set_extra_http_headers(**HEADERS)
+        page.set_extra_http_headers(**headers)
 
         kwargs = first_try ? {times: 1, raise_on_failure: false} : {}
         try_timeout(**kwargs) do
@@ -211,6 +206,22 @@ module Raspishika
       end
       Cache.set :"schedule_#{group_info[:sid]}_#{group_info[:gr]}", schedule
       return html, schedule
+    end
+
+    def generate_headers
+      platforms = ["Windows NT #{%w[6.1 6.2 6.3 10.0].sample}; Win64; x64",
+                   "Macintosh; #{%w[Intel ARM].sample} Mac OS X 10_15_7",
+                   "X11; Linux #{%w[x86_64 i686 armv71].sample}", 'Linux; Android 14; SM-S901B',
+                   'iPhone; CPU iPhone OS 17_5 like Mac OS X', 'iPad; CPU OS 17_5 like Mac OS X'].freeze
+      {
+        'User-Agent' =>
+          "Mozilla/5.0 (#{platforms.sample}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/#{rand(129..130)}.0.0.0 Safari/537.36",
+        'Referer' => 'https://coworking.tyuiu.ru/shs/all_t/',
+        'Accept-Language' => "#{%w[ru-RU,ru en-US,en].sample};q=0.#{rand(5..9)}",
+      }.tap do |a|
+        {'Sec-Fetch-Dest' => 'document', 'Sec-Fetch-Mode' => 'navigate', 'Connection' => 'keep-alive'}
+          .each { |k, v| a[k] = v if rand(2).zero? }
+      end
     end
 
     def update_department_id(group_info)
