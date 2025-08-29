@@ -165,11 +165,11 @@ module Raspishika
       File.write(File.join(debug_dir, 'schedule.html'), html)
     end
 
-    def try_get_schedule(url, group_info, **)
+    def try_fetch_schedule(url, group_info, **kwargs)
       html, schedule = nil
       use_browser do |browser|
         page = browser.new_page
-        try_timeout(**) do
+        try_timeout(**kwargs) do
           page.goto('https://mnokol.tyuiu.ru/', timeout: TIMEOUT * 1000)
           sleep 1
           headers = generate_headers
@@ -187,7 +187,7 @@ module Raspishika
 
         unless html
           page.close
-          return nil if first_try
+          return nil if kwargs[:raise_on_failure] == false
           raise "Failed to load page after #{MAX_RETRIES} retries"
         end
 
@@ -195,7 +195,7 @@ module Raspishika
         schedule = parse_schedule_table(doc.at_css('table#main_table'))
         unless schedule
           page.close
-          return nil if first_try
+          return nil if kwargs[:raise_on_failure] == false
           raise "Failed to find table#main_table."
         end
 
