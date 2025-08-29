@@ -141,7 +141,7 @@ module Raspishika
       logger.debug "URL: #{url}"
 
       # First try
-      html, schedule = try_get_schedule url, group_info, times: 1, raise_on_failure: false
+      html, schedule = try_fetch_schedule url, group_info, times: 1, raise_on_failure: false
       return schedule if html && schedule
 
       logger.warn "Failed to load page, trying to update department ID..."
@@ -152,7 +152,7 @@ module Raspishika
       logger.debug "URL: #{url}"
 
       # Second try with updated department ID
-      html, schedule = try_get_schedule url, group_info
+      html, schedule = try_fetch_schedule url, group_info
       return schedule
     rescue Playwright::TimeoutError => e
       logger.error "Timeout error while parsing schedule: #{e.detailed_message}"
