@@ -141,7 +141,7 @@ module Raspishika
       logger.debug "URL: #{url}"
 
       # First try
-      html, schedule = try_get_schedule url, group_info
+      html, schedule = try_get_schedule url, group_info, times: 1, raise_on_failure: false
       return schedule if html && schedule
 
       logger.warn "Failed to load page, trying to update department ID..."
@@ -152,7 +152,7 @@ module Raspishika
       logger.debug "URL: #{url}"
 
       # Second try with updated department ID
-      html, schedule = try_get_schedule url, group_info, first_try: false
+      html, schedule = try_get_schedule url, group_info
       return schedule
     rescue Playwright::TimeoutError => e
       logger.error "Timeout error while parsing schedule: #{e.detailed_message}"
@@ -165,18 +165,16 @@ module Raspishika
       File.write(File.join(debug_dir, 'schedule.html'), html)
     end
 
-    def try_get_schedule(url, group_info, first_try: true)
+    def try_get_schedule(url, group_info, **)
       html, schedule = nil
-      headers = generate_headers
-      logger.debug "HEADERS: #{headers.pretty_inspect}"
       use_browser do |browser|
         page = browser.new_page
-        page.goto('https://mnokol.tyuiu.ru/', timeout: TIMEOUT * 1000)
-        sleep 1
-        page.set_extra_http_headers(**headers)
-
-        kwargs = first_try ? {times: 1, raise_on_failure: false} : {}
-        try_timeout(**kwargs) do
+        try_timeout(**) do
+          page.goto('https://mnokol.tyuiu.ru/', timeout: TIMEOUT * 1000)
+          sleep 1
+          headers = generate_headers
+          logger.debug "HEADERS: #{headers.pretty_inspect}"
+          page.set_extra_http_headers(**headers)
           html = nil
           page.goto(url, timeout: TIMEOUT * 1000)
           html = page.content

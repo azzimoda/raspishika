@@ -47,7 +47,7 @@ module Raspishika
           .side_column_number { width: 1%; }
           .side_column_time { width: 3%; }
           .replaced { background-color: #fae4d7; }
-          .title, .discipline, .classroom { font-weight: bold; }
+          .title, .discipline, .classroom { font-weight: bold; word-break: break-word; }
           .event { background-color: #fa8072; }
           .iga { background-color: #cfffd9 }
           .practice { background-color: #c0d5fa; }
