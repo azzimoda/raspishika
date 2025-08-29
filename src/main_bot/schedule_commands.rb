@@ -7,6 +7,7 @@ module Raspishika
     def send_week_schedule(_message, user, quick: nil)
       get_group_info = lambda do
         group_info = if quick
+          logger.debug "Quick schedule: #{quick.inspect}"
           quick
         else
           unless user.department && user.group

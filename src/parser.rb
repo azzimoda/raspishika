@@ -213,7 +213,7 @@ module Raspishika
                    'iPhone; CPU iPhone OS 17_5 like Mac OS X', 'iPad; CPU OS 17_5 like Mac OS X'].freeze
       {
         'User-Agent' =>
-          "Mozilla/5.0 (#{platforms.sample}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/#{rand(129..130)}.0.0.0 Safari/537.36",
+          "Mozilla/5.0 (#{platforms.sample}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
         'Referer' => 'https://coworking.tyuiu.ru/shs/all_t/',
         'Accept-Language' => "#{%w[ru-RU,ru en-US,en].sample};q=0.#{rand(5..9)}",
       }.tap do |a|
