@@ -265,11 +265,12 @@ module Raspishika
     def send_pair_notification time, user: nil
       logger.info "Sending pair notification for #{time}..."
 
+      groups_data = @parser.fetch_all_groups @parser.fetch_departments
       groups = if user
         logger.debug "Sending pair notification for #{time} to #{user.id} with group #{user.group_info}..."
-        {[user.department, user.group] => [user]}
+        {groups_data[user.department_name][user.group_name] => [user]}
       else
-        User.users.values.select(&:pair_sending).group_by { [it.department, it.group] }
+        User.users.values.select(&:pair_sending).group_by { groups_data[it.department_name][it.group_name] }
       end
       logger.debug "Sending pair notification to #{groups.size} groups..."
 
@@ -287,11 +288,12 @@ module Raspishika
     def send_pair_notification time, user: nil
       logger.info "Sending pair notification for #{time}..."
 
+      groups_data = @parser.fetch_all_groups @parser.fetch_departments
       groups = if user
         logger.debug "Sending pair notification for #{time} to #{user.id} with group #{user.group_info}..."
-        {[user.department, user.group] => [user]}
+        {groups_data[user.department_name][user.group_name] => [user]}
       else
-        User.users.values.select(&:pair_sending).group_by { [it.department, it.group] }
+        User.users.values.select(&:pair_sending).group_by { groups_data[it.department_name][it.group_name] }
       end
       logger.debug "Sending pair notification to #{groups.size} groups..."
 

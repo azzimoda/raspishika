@@ -22,7 +22,7 @@ module Raspishika
       end
 
       def backup
-        @users.select! { |id, user| user.department && user.group }
+        @users.select! { |id, user| user.department_name && user.group_name }
 
         FileUtils.mkdir_p File.dirname TEMP_FILE
         FileUtils.mkdir_p File.dirname BACKUP_FILE
@@ -55,15 +55,12 @@ module Raspishika
     end
   
     def initialize(
-      id, department: nil, group: nil, department_name: nil, group_name: nil, daily_sending: nil,
-      pair_sending: nil, statistics: nil, **
+      id, department_name: nil, group_name: nil, daily_sending: nil, pair_sending: nil, statistics: nil, **
     )
       @id = id
       @state = :default
-  
-      @department = department
+
       @department_name = department_name
-      @group = group
       @group_name = group_name
   
       @daily_sending = daily_sending
@@ -80,7 +77,7 @@ module Raspishika
       @statistics[:pair_sendings] ||= []
     end
     attr_accessor :id, :state,
-      :group, :group_name, :department, :department_name,
+      :group_name, :department_name,
       :daily_sending, :pair_sending,
       :departments, :groups, :department_name_temp, :department_url,
       :statistics
@@ -99,12 +96,11 @@ module Raspishika
     end
   
     def group_info
-      {sid: @department, gr: @group, group: @group_name, department: @department_name,
-       zaochnoe: zaochnoe?}
+      {group: @group_name, department: @department_name, zaochnoe: zaochnoe?}
     end
   
     def to_h
-      {department:, department_name:, group:, group_name:, daily_sending:, pair_sending:, statistics:}
+      {department_name:, group_name:, daily_sending:, pair_sending:, statistics:}
     end
   
     def to_json(*)

@@ -5,35 +5,23 @@ module Raspishika
     private
 
     def send_week_schedule(_message, user, quick: nil)
-      get_group_info = lambda do
-        group_info = if quick
-          logger.debug "Quick schedule: #{quick.inspect}"
-          quick
-        else
-          unless user.department && user.group
-            bot.api.send_message(chat_id: user.id, text: "Группа не выбрана")
-            return configure_group(_message, user)
-          end
-
-          unless user.department_name
-            bot.api.send_message(
-              chat_id: user.id,
-              text:
-                "В связи с техническими проблемами нужно выбрать группу заново. " \
-                "Это нужно сделать один раз, больше такого не повторится."
-            )
-            return configure_group(_message, user)
-          end
-
-          user.group_info
+      group_info = if quick
+        logger.debug "Quick schedule: #{quick.inspect}"
+        quick
+      else
+        unless user.department_name && user.group_name
+          bot.api.send_message(chat_id: user.id, text: "Группа не выбрана")
+          return configure_group(_message, user)
         end
+
+        user.group_info
       end
 
       sent_message = send_loading_message user.id
 
-      schedule = parser.fetch_schedule get_group_info.call
+      schedule = parser.fetch_schedule group_info
 
-      file_path = ImageGenerator.image_path(**get_group_info.call)
+      file_path = ImageGenerator.image_path(**group_info)
       make_photo = -> { Faraday::UploadIO.new(file_path, 'image/png') }
       reply_markup = default_reply_markup user.id
 
@@ -49,7 +37,7 @@ module Raspishika
           parse_mode: 'Markdown',
           reply_markup:
         )
-        report("Failed to fetch schedule for #{get_group_info.call}", photo: make_photo.call, log: 20)
+        report("Failed to fetch schedule for #{group_info}", photo: make_photo.call, log: 20)
       else
         user.push_command_usage command: _message.text, ok: true
       end
@@ -59,16 +47,6 @@ module Raspishika
     def send_tomorrow_schedule(_message, user)
       unless user.department && user.group
         bot.api.send_message(chat_id: user.id, text: "Группа не выбрана")
-        return configure_group(_message, user)
-      end
-
-      unless user.department_name
-        bot.api.send_message(
-          chat_id: user.id,
-          text:
-            "В связи с техническими проблемами нужно выбрать группу заново. " \
-            "Это нужно сделать один раз, больше такого не повторится."
-        )
         return configure_group(_message, user)
       end
 
@@ -98,16 +76,6 @@ module Raspishika
     def send_left_schedule(_message, user)
       unless user.department && user.group
         bot.api.send_message(chat_id: user.id, text: "Группа не выбрана")
-        return configure_group(_message, user)
-      end
-
-      unless user.department_name
-        bot.api.send_message(
-          chat_id: user.id,
-          text:
-            "В связи с техническими проблемами нужно выбрать группу заново. " \
-            "Это нужно сделать один раз, больше такого не повторится."
-        )
         return configure_group(_message, user)
       end
 

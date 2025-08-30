@@ -127,10 +127,13 @@ module Raspishika
   
     def fetch_schedule(group_info)
       logger.info "Fetching schedule for #{group_info}"
-      unless group_info[:gr] && group_info[:sid]
+      unless group_info[:department] && group_info[:group]
         logger.error "Wrong group data"
         return nil
       end
+
+      groups_data = fetch_all_groups fetch_departments
+      group_info = group_info.merge groups_data[group_info[:department]][group_info[:group]]
 
       if Cache.actual? :"schedule_#{group_info[:sid]}_#{group_info[:gr]}"
         return Cache.get :"schedule_#{group_info[:sid]}_#{group_info[:gr]}"
@@ -207,6 +210,7 @@ module Raspishika
     end
 
     def generate_headers
+      # TODO: Use gem `user-agent-randomizer` instead of hard-coded User-Agent.
       platforms = ["Windows NT #{%w[6.1 6.2 6.3 10.0].sample}; Win64; x64",
                    "Macintosh; #{%w[Intel ARM].sample} Mac OS X 10_15_7",
                    "X11; Linux #{%w[x86_64 i686 armv71].sample}", 'Linux; Android 14; SM-S901B',
@@ -225,14 +229,9 @@ module Raspishika
     def update_department_id(group_info)
       # Update department ID for all users in the group.
       deps = fetch_departments
-      department_url = deps[group_info[:department]]
-      return logger.error "Failed department url by name #{group_info[:department].inspect}" unless department_url
-
-      groups = fetch_groups(department_url, group_info[:department])
-      return unless groups
-
+      groups = fetch_all_groups deps
+      groups = groups[group_info[:department]]
       new_group_info = groups[group_info[:group]]
-      return logger.error "Failed to group info by group name #{group_info[:group].inspect}" unless new_group_info
 
       logger.debug "Fetched group info: #{new_group_info.inspect})"
 

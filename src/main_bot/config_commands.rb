@@ -34,7 +34,8 @@ module Raspishika
 
     def select_department(message, user)
       departments = parser.fetch_departments
-      groups = parser.fetch_groups departments[message.text], message.text
+      groups = parser.fetch_all_groups departments
+      groups = groups[message.text]
       unless groups&.any?
         user.push_command_usage command: message.text, ok: false
 
@@ -46,7 +47,6 @@ module Raspishika
         return
       end
 
-      user.department_url = departments[message.text]
       user.department_name_temp = message.text
       user.groups = groups
       user.state = user.state.end_with?('quick') ? :select_group_quick : :select_group
@@ -75,9 +75,7 @@ module Raspishika
           quick: group_info.merge(department: user.department_name_temp, group: message.text)
         )
       else
-        user.department = group_info[:sid]
         user.department_name = user.department_name_temp
-        user.group = group_info[:gr]
         user.group_name = message.text
 
         bot.api.send_message(
@@ -90,18 +88,8 @@ module Raspishika
     end
 
     def configure_sending(_message, user)
-      unless user.department && user.group
+      unless user.department_name && user.group_name
         bot.api.send_message(chat_id: user.id, text: "Группа не выбрана")
-        return configure_group(_message, user)
-      end
-
-      unless user.department_name
-        bot.api.send_message(
-          chat_id: user.id,
-          text:
-            "В связи с техническими проблемами нужно выбрать группу заново. " \
-            "Это нужно сделать один раз, больше такого не повторится."
-        )
         return configure_group(_message, user)
       end
 

@@ -28,8 +28,8 @@ module Raspishika
       logger&.debug "Screenshot saved to #{output_path}"
     end
 
-    def self.image_path(sid:, gr:, group:, department:, **)
-      File.expand_path("#{sid}_#{gr}_#{department}_#{group}.png", CACHE_DIR)
+    def self.image_path(group:, department:, **)
+      File.expand_path("#{department}_#{group}.png", CACHE_DIR)
     end
 
     private
