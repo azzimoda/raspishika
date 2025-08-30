@@ -45,13 +45,17 @@ module Raspishika
     end
 
     def send_tomorrow_schedule(_message, user)
-      unless user.department && user.group
+      unless user.department_name && user.group_name
         bot.api.send_message(chat_id: user.id, text: "Группа не выбрана")
         return configure_group(_message, user)
       end
 
+      groups_data = parser.fetch_all_groups user.department_name
+      sid = groups_data[user.department_name][user.group_name][:sid]
+      gr = groups_data[user.department_name][user.group_name][:gr]
+
       sent_message = send_loading_message user.id
-      schedule = Cache.fetch(:"schedule_#{user.department}_#{user.group}") do
+      schedule = Cache.fetch(:"schedule_#{sid}_#{gr}") do
         parser.fetch_schedule user.group_info
       end
       day_index = Date.today.sunday? ? 0 : 1
@@ -74,7 +78,7 @@ module Raspishika
     end
 
     def send_left_schedule(_message, user)
-      unless user.department && user.group
+      unless user.department_name && user.group_name
         bot.api.send_message(chat_id: user.id, text: "Группа не выбрана")
         return configure_group(_message, user)
       end
@@ -87,8 +91,12 @@ module Raspishika
         return
       end
 
+      groups_data = parser.fetch_all_groups user.department_name
+      sid = groups_data[user.department_name][user.group_name][:sid]
+      gr = groups_data[user.department_name][user.group_name][:gr]
+
       sent_message = send_loading_message user.id
-      schedule = Cache.fetch(:"schedule_#{user.department}_#{user.group}") do
+      schedule = Cache.fetch(:"schedule_#{sid}_#{gr}") do
         parser.fetch_schedule user.group_info
       end
       left_schedule = schedule && Schedule.from_raw(schedule).left
