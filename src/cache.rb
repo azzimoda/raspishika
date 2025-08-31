@@ -1,8 +1,10 @@
+# frozen_string_literal: true
+
 require 'pstore'
 
 module Raspishika
   module Cache
-    DEFAULT_CACHE_EXPIRATION = 15*60 # 15 minutes
+    DEFAULT_CACHE_EXPIRATION = 15 * 60 # 15 minutes
     @logger = nil
     @data = {}
     @store = PStore.new File.expand_path 'data/cache.pstore', ROOT_DIR
@@ -12,79 +14,61 @@ module Raspishika
       attr_accessor :logger
     end
 
-    # If expires_in is nil, the cache will not expire. If expires_in is 0, the will be always expired.
-    def self.fetch(key, expires_in: DEFAULT_CACHE_EXPIRATION, allow_nil: false, file: false, &block)
+    # If `expires_in` is `nil`, the cache will not expire. If `expires_in` is 0, the will be always expired.
+    def self.fetch(key, expires_in: DEFAULT_CACHE_EXPIRATION, allow_nil: false, file: false, log: true, &block)
       if DEFAULT_CACHE_EXPIRATION.zero?
-        logger&.debug "Skipping caching for #{key.inspect} because of environment configuration..."
+        logger&.debug "Skipping caching for #{key.inspect} because of environment configuration..." if log
         return block.call
       end
 
       if @mutex.locked?
-        transaction(key, expires_in:, allow_nil:, file:, &block)
-      else
-        @mutex.synchronize { transaction(key, expires_in:, allow_nil:, file:, &block) }
+        return transaction(key, expires_in: expires_in, allow_nil: allow_nil, file: file, log: log, &block)
+      end
+
+      @mutex.synchronize do
+        transaction(key, expires_in: expires_in, allow_nil: allow_nil, file: file, log: log, &block)
       end
     end
 
-    def self.transaction(key, expires_in:, allow_nil:, file:, &block)
-      entry = if file
-        @store.transaction true do
-          break nil unless @store.root? key
-          @store[key]
-        end
-      else
-        @data[key]
-      end
+    def self.transaction(key, expires_in:, allow_nil:, file:, log: true, &block)
+      entry = get_entry key, file: file
 
-      if (entry && (allow_nil || entry[:value]) && (expires_in.nil? || Time.now - entry[:timestamp] < expires_in))
-        logger&.debug "Returning existing cache for #{key.inspect}..."
+      if actual_entry? entry, expires_in: expires_in, allow_nil: allow_nil
+        logger&.debug "Returning existing cache for #{key.inspect}..." if log
         entry[:value].dup
       else
-        logger&.debug "Generating new cache for #{key.inspect}..."
-        new_cache = { value: block.call, timestamp: Time.now }
-        if file
-          @store.transaction do
-            @store[key] = new_cache
-            @store[key][:value].dup
-          end
-        else
-          @data[key] = new_cache
-          @data[key][:value].dup
-        end
+        logger&.debug "Generating new cache for #{key.inspect}..." if log
+        set ket, block.call, file: file
       end
     end
 
     def self.actual?(key, expires_in: DEFAULT_CACHE_EXPIRATION, allow_nil: false, file: false)
-      entry = if file
-        @store.transaction true do
-          break nil unless @store.root? key
-          @store[key]
-        end
-      else
-        @data[key]
-      end
+      entry = get_entry key, file: file
+      actual_entry? entry, expires_in: expires_in, allow_nil: allow_nil
+    end
+
+    def self.actual_entry?(entry, expires_in:, allow_nil:)
       entry && (allow_nil || entry[:value]) && (expires_in.nil? || Time.now - entry[:timestamp] < expires_in)
     end
 
     def self.get(key, file: false)
+      get_entry(key, file: file)&.dig(:value)
+    end
+
+    def self.get_entry(key, file: false)
       if file
-        @store.transaction true do
-          break nil unless @store.root? key
-          @store[key][:value]
-        end
-      else
-        @data[key][:value] if @data[key]
+        @store.transaction(true) { @store[key] if @store.root? key }
+      elsif @data[key]
+        @data[key]
       end
     end
 
     def self.set(key, value, file: false)
       new_cache = { value: value, timestamp: Time.now }
       if file
-        @store.transaction do
-          (@store[key] = new_cache).dup
-        end
+        @store.transaction { (@store[key] = new_cache)[:value] }
       else
-        (@data[key] = new_cache).dup
+        (@data[key] = new_cache)[:value]
       end
     end
 

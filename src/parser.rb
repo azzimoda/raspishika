@@ -127,19 +127,21 @@ module Raspishika
       logger.error "Backtrace:\n#{e.backtrace.join("\n")}"
       nil
     end
-  
+
     def fetch_schedule(group_info)
       logger.info "Fetching schedule for #{group_info}"
       unless group_info[:department] && group_info[:group]
-        logger.error "Wrong group data"
+        logger.error 'Wrong group data'
         return nil
       end
 
       groups_data = fetch_all_groups fetch_departments
       group_info = group_info.merge groups_data[group_info[:department]][group_info[:group]]
 
-      if Cache.actual? :"schedule_#{group_info[:sid]}_#{group_info[:gr]}"
-        return Cache.get :"schedule_#{group_info[:sid]}_#{group_info[:gr]}"
+      cache_key = :"schedule_#{group_info[:sid]}_#{group_info[:gr]}"
+      if Cache.actual? cache_key
+        logger.debug "Using cached schedule for #{cache_key}"
+        return Cache.get cache_key
       end
 
       base_url = "https://coworking.tyuiu.ru/shs/all_t/sh#{group_info[:zaochnoe] ? 'z' : ''}.php"
@@ -147,10 +149,10 @@ module Raspishika
       logger.debug "URL: #{url}"
 
       # First try
-      html, schedule = try_fetch_schedule url, group_info, times: 1, raise_on_failure: false
-      return schedule if html && schedule
+      schedule = try_fetch_schedule url, group_info, times: 1, raise_on_failure: false
+      return schedule if schedule
 
-      logger.warn "Failed to load page, trying to update department ID..."
+      logger.warn 'Failed to load page, trying to update department ID...'
 
       new_group_info = update_department_id group_info
       group_info = group_info.merge new_group_info
