@@ -38,7 +38,7 @@ module Raspishika
         entry[:value].dup
       else
         logger&.debug "Generating new cache for #{key.inspect}..." if log
-        set ket, block.call, file: file
+        set key, block.call, file: file
       end
     end
 
