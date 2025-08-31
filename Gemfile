@@ -8,3 +8,5 @@ gem "base64", "~> 0.2.0"
 gem "rufus-scheduler", "~> 3.9"
 
 gem "slop", "~> 4.10"
+
+gem "user-agent-randomizer", "~> 0.2.0"

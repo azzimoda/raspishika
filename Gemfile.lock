@@ -82,6 +82,7 @@ GEM
     tzinfo (2.0.6)
       concurrent-ruby (~> 1.0)
     uri (1.0.3)
+    user-agent-randomizer (0.2.0)
     zeitwerk (2.7.3)
 
 PLATFORMS
@@ -102,6 +103,7 @@ DEPENDENCIES
   rufus-scheduler (~> 3.9)
   slop (~> 4.10)
   telegram-bot-ruby (~> 2.1)
+  user-agent-randomizer (~> 0.2.0)
 
 BUNDLED WITH
    2.7.1

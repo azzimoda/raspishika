@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'nokogiri'
 require 'open-uri'
 require 'uri'
@@ -5,6 +7,7 @@ require 'cgi'
 require 'playwright' # NOTE: Playwright is synchronouse YET
 require 'timeout'
 require 'prettyprint'
+require 'user_agent_randomizer'
 
 require_relative 'image_generator'
 
@@ -155,17 +158,7 @@ module Raspishika
       logger.debug "URL: #{url}"
 
       # Second try with updated department ID
-      html, schedule = try_fetch_schedule url, group_info
-      return schedule
-    rescue Playwright::TimeoutError => e
-      logger.error "Timeout error while parsing schedule: #{e.detailed_message}"
-      logger.debug e.backtrace.join"\n"
-      nil
-    ensure
-      debug_dir = File.join('data', 'debug')
-      Dir.mkdir(debug_dir) unless Dir.exist?(debug_dir)
-      # Saving original HTML into data/debug/schedule.html for debug
-      File.write(File.join(debug_dir, 'schedule.html'), html)
+      try_fetch_schedule url, group_info
     end
 
     def try_fetch_schedule(url, group_info, **kwargs)
@@ -183,7 +176,7 @@ module Raspishika
           html = page.content
           sleep 0.5
 
-          logger.debug "Waiting for table..."
+          logger.debug 'Waiting for table...'
           page.wait_for_selector('#main_table', timeout: TIMEOUT * 1000)
           html = page.content
         end
@@ -191,6 +184,7 @@ module Raspishika
         unless html
           page.close
           return nil if kwargs[:raise_on_failure] == false
+
           raise "Failed to load page after #{MAX_RETRIES} retries"
         end
 
@@ -199,29 +193,34 @@ module Raspishika
         unless schedule
           page.close
           return nil if kwargs[:raise_on_failure] == false
-          raise "Failed to find table#main_table."
+
+          raise 'Failed to find table#main_table.'
         end
 
         ImageGenerator.generate(page, schedule, **group_info)
         page.close
       end
       Cache.set :"schedule_#{group_info[:sid]}_#{group_info[:gr]}", schedule
-      return html, schedule
+      schedule
+    rescue Playwright::TimeoutError => e
+      logger.error "Timeout error while parsing schedule: #{e.detailed_message}"
+      logger.debug e.backtrace.join "\n"
+      nil
+    ensure
+      debug_dir = File.join('data', 'debug')
+      Dir.mkdir(debug_dir) unless Dir.exist?(debug_dir)
+      # Saving original HTML into data/debug/schedule.html for debug
+      File.write(File.join(debug_dir, 'schedule.html'), html)
     end
 
     def generate_headers
-      # TODO: Use gem `user-agent-randomizer` instead of hard-coded User-Agent.
-      platforms = ["Windows NT #{%w[6.1 6.2 6.3 10.0].sample}; Win64; x64",
-                   "Macintosh; #{%w[Intel ARM].sample} Mac OS X 10_15_7",
-                   "X11; Linux #{%w[x86_64 i686 armv71].sample}", 'Linux; Android 14; SM-S901B',
-                   'iPhone; CPU iPhone OS 17_5 like Mac OS X', 'iPad; CPU OS 17_5 like Mac OS X'].freeze
       {
-        'User-Agent' =>
-          "Mozilla/5.0 (#{platforms.sample}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+        'User-Agent' => userAgentRandomizer::UserAgent.fetch.string,
         'Referer' => 'https://coworking.tyuiu.ru/shs/all_t/',
-        'Accept-Language' => "#{%w[ru-RU,ru en-US,en].sample};q=0.#{rand(5..9)}",
+        'Accept-Language' => "#{%w[ru-RU,ru en-US,en].sample};q=0.#{rand(5..9)}"
       }.tap do |a|
-        {'Sec-Fetch-Dest' => 'document', 'Sec-Fetch-Mode' => 'navigate', 'Connection' => 'keep-alive'}
+        # NOTE: This may be not necessary.
+        { 'Sec-Fetch-Dest' => 'document', 'Sec-Fetch-Mode' => 'navigate', 'Connection' => 'keep-alive' }
           .each { |k, v| a[k] = v if rand(2).zero? }
       end
     end
@@ -234,13 +233,6 @@ module Raspishika
       new_group_info = groups[group_info[:group]]
 
       logger.debug "Fetched group info: #{new_group_info.inspect})"
-
-      User.users.values.each do |user|
-        next unless user.department == group_info[:sid] && user.group == group_info[:gr]
-
-        user.department = new_group_info[:sid]
-      end
-
       new_group_info
     end
 
