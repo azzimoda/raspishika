@@ -215,7 +215,7 @@ module Raspishika
 
     def generate_headers
       {
-        'User-Agent' => userAgentRandomizer::UserAgent.fetch.string,
+        'User-Agent' => UserAgentRandomizer::UserAgent.fetch.string,
         'Referer' => 'https://coworking.tyuiu.ru/shs/all_t/',
         'Accept-Language' => "#{%w[ru-RU,ru en-US,en].sample};q=0.#{rand(5..9)}"
       }.tap do |a|
