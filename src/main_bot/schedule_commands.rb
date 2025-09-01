@@ -26,7 +26,7 @@ module Raspishika
 
       schedule = parser.fetch_schedule group_info
 
-      file_path = ImageGenerator.image_path(**group_info)
+      file_path = ImageGenerator.image_path(group_info: group_info)
       make_photo = -> { Faraday::UploadIO.new(file_path, 'image/png') }
       reply_markup = default_reply_markup user.id
 
@@ -52,14 +52,8 @@ module Raspishika
         return configure_group(message, user)
       end
 
-      groups_data = parser.fetch_all_groups user.department_name
-      sid = groups_data[user.department_name][user.group_name][:sid]
-      gr = groups_data[user.department_name][user.group_name][:gr]
-
       sent_message = send_loading_message user.id
-      schedule = Cache.fetch(:"schedule_#{sid}_#{gr}") do
-        parser.fetch_schedule user.group_info
-      end
+      schedule = parser.fetch_schedule user.group_info
       day_index = Date.today.sunday? ? 0 : 1
       tomorrow_schedule = schedule && Schedule.from_raw(schedule).day(day_index)
       text =
@@ -94,14 +88,8 @@ module Raspishika
         return
       end
 
-      groups_data = parser.fetch_all_groups user.department_name
-      sid = groups_data[user.department_name][user.group_name][:sid]
-      gr = groups_data[user.department_name][user.group_name][:gr]
-
       sent_message = send_loading_message user.id
-      schedule = Cache.fetch(:"schedule_#{sid}_#{gr}") do
-        parser.fetch_schedule user.group_info
-      end
+      schedule = parser.fetch_schedule user.group_info
       left_schedule = schedule && Schedule.from_raw(schedule).left
       text =
         if left_schedule.nil? || left_schedule.all_empty?
