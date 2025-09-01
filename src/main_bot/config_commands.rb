@@ -87,20 +87,20 @@ module Raspishika
       user.state = :default
     end
 
-    def configure_sending(_message, user)
+    def send_settings_menu(message, user)
       unless user.department_name && user.group_name
-        bot.api.send_message(chat_id: user.id, text: "Группа не выбрана")
-        return configure_group(_message, user)
+        bot.api.send_message(chat_id: user.id, text: 'Группа не выбрана')
+        return configure_group(message, user)
       end
 
-      user.push_command_usage command: _message.text
+      user.push_command_usage command: message.text
 
       pair_sending_label = user.pair_sending ? LABELS[:pair_sending_off] : LABELS[:pair_sending_on]
       bot.api.send_message(
         chat_id: user.id,
-        text: "Какую рассылку настроить?",
+        text: 'Что настроить?',
         reply_markup: {
-          keyboard: [["Отмена"], ["Ежедневная рассылка", pair_sending_label]],
+          keyboard: [['Отмена'], [LABELS[:my_group], 'Ежедневная рассылка', pair_sending_label]],
           resize_keyboard: true,
           one_time_keyboard: true
         }.to_json
@@ -157,7 +157,7 @@ module Raspishika
 
       bot.api.send_message(
         chat_id: message.chat.id,
-        text: "Рассылка за 15 минут перед парами включена",
+        text: 'Рассылка перед парами включена',
         reply_markup: default_reply_markup(user.id)
       )
     end
@@ -169,21 +169,20 @@ module Raspishika
 
       bot.api.send_message(
         chat_id: message.chat.id,
-        text: "Рассылка за 15 минут перед парами выключена",
+        text: 'Рассылка перед парами выключена',
         reply_markup: default_reply_markup(user.id)
       )
     end
 
-    def cancel_action (message, user)
+    def cancel_action(_message, user)
       reply_markup = default_reply_markup user.id
       case user.state
       when :default
-        bot.api.send_message(chat_id: user.id, text: "Нечего отменять", reply_markup:)
+        bot.api.send_message(chat_id: user.id, text: 'Нечего отменять', reply_markup: reply_markup)
       else
         user.state = :default
-        bot.api.send_message(chat_id: user.id, text: "Действие отменено", reply_markup:)
+        bot.api.send_message(chat_id: user.id, text: 'Действие отменено', reply_markup: reply_markup)
       end
     end
-
   end
 end

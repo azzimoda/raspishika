@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'rufus-scheduler'
 require 'telegram/bot'
 
@@ -35,40 +37,50 @@ module Raspishika
       left: 'Оставшиеся пары',
       tomorrow: 'Завтра',
       week: 'Неделя',
+
+      quick_schedule: 'Быстрое расписание',
       select_group: 'Выбрать группу',
-      configure_sending: 'Настроить рассылку',
+      settings: 'Настройки',
+
+      other_group: 'Другая группа',
+      teacher: 'Преподаватель',
+
+      my_group: 'Моя группа',
       daily_sending: 'Ежедневная рассылка',
       pair_sending_on: 'Вкл. рассылку перед парами',
-      pair_sending_off: 'Выкл. рассылку перед парами',
-      quick_schedule: 'Быстрое расписание',
+      pair_sending_off: 'Выкл. рассылку перед парами'
     }.freeze
 
     DEFAULT_KEYBOARD = [
-      [LABELS[:left]],
-      [LABELS[:tomorrow], LABELS[:week]],
-      [LABELS[:quick_schedule], LABELS[:select_group], LABELS[:configure_sending]],
+      [LABELS[:left], LABELS[:tomorrow], LABELS[:week]],
+      [LABELS[:quick_schedule], LABELS[:settings]]
     ].freeze
     DEFAULT_REPLY_MARKUP = {
       keyboard: DEFAULT_KEYBOARD,
       resize_keyboard: true,
-      one_time_keyboard: true,
+      one_time_keyboard: true
     }.to_json.freeze
 
     MY_COMMANDS = [
-      {command: 'left', description: 'Оставшиеся пары'},
-      {command: 'tomorrow', description: 'Расписание на завтра'},
-      {command: 'week', description: 'Расписание на неделю'},
-      {command: 'quick_schedule', description: 'Быстрое расписание другой группы'},
-      {command: 'configure_sending', description: 'Настроить рассылку'},
-      {command: 'configure_daily_sending', description: 'Настроить ежедневную рассылку'},
-      {command: 'daily_sending_off', description: 'Выключить ежедневную рассылку'},
-      {command: 'pair_sending_on', description: 'Включить рассылку перед парами'},
-      {command: 'pair_sending_off', description: 'Выключить рассылку перед парами'},
-      {command: 'set_group', description: 'Изменить группу'},
-      {command: 'cancel', description: 'Отменить действие'},
-      {command: 'stop', description: 'Остановить бота и удалить данные о себе'},
-      {command: 'help', description: 'Помощь'},
-      {command: 'start', description: 'Запуск бота'}
+      { command: 'left', description: 'Оставшиеся пары' },
+      { command: 'tomorrow', description: 'Расписание на завтра' },
+      { command: 'week', description: 'Расписание на неделю' },
+
+      { command: 'quick_schedule', description: 'Расписание другой группы' },
+      { command: 'teacher_schedule', description: 'Расписание преподавателя' },
+
+      { command: 'configure_daily_sending', description: 'Настроить ежедневную рассылку' },
+      { command: 'daily_sending_off', description: 'Выключить ежедневную рассылку' },
+
+      { command: 'pair_sending_on', description: 'Включить рассылку перед парами' },
+      { command: 'pair_sending_off', description: 'Выключить рассылку перед парами' },
+
+      { command: 'set_group', description: 'Изменить группу' },
+
+      { command: 'cancel', description: 'Отменить действие' },
+      { command: 'stop', description: 'Остановить бота и удалить данные о себе' },
+      { command: 'help', description: 'Помощь' },
+      { command: 'start', description: 'Запуск бота' }
     ].freeze
 
     def initialize
@@ -134,6 +146,7 @@ module Raspishika
           "Unhandled error in `bot.listen`: #{e.detailed_message}".tap do |msg|
             report(msg, backtrace: e.backtrace.join("\n"), log: 20)
             logger.error msg
+            logger.error "Backtrace: #{e.backtrace.join("\n\t")}"
             logger.error "Retrying... (#{@retries + 1}/#{MAX_RETRIES})"
           end
   
@@ -155,16 +168,20 @@ module Raspishika
       logger.fatal e.detailed_message
       logger.fatal e.backtrace.join "\n"
     ensure
-      report "Bot stopped."
+      shutdown
+    end
+
+    def shutdown
+      report 'Bot stopped.'
       @run = false
-  
+
       @user_backup_thread&.join
       User.backup
-  
+
       @dev_bot_thread&.kill
       @sending_thread&.join
       @parser.stop_browser_thread
-  
+
       @thread_pool&.shutdown
       @thread_pool&.wait_for_termination(30)
       @thread_pool&.kill if @thread_pool.running?
@@ -262,45 +279,23 @@ module Raspishika
 
     private
 
-    def send_pair_notification time, user: nil
+    def send_pair_notification(time, user: nil)
       logger.info "Sending pair notification for #{time}..."
 
       groups_data = @parser.fetch_all_groups @parser.fetch_departments
-      groups = if user
-        logger.debug "Sending pair notification for #{time} to #{user.id} with group #{user.group_info}..."
-        {groups_data[user.department_name][user.group_name] => [user]}
-      else
-        User.users.values.select(&:pair_sending).group_by { groups_data[it.department_name][it.group_name] }
-      end
-      logger.debug "Sending pair notification to #{groups.size} groups..."
-
-      futures = groups.map do |(sid, gr), users|
-        Concurrent::Future.execute(executor: @thread_pool) do
-          send_pair_notification_for_group(sid:, gr:, users:, time:)
-        rescue => e
-          logger.error "Failed to send pair notification for group #{gr}: #{e.detailed_message}"
-          logger.error e.backtrace.join("\n")
+      groups =
+        if user
+          logger.debug "Sending pair notification for #{time} to #{user.id} with group #{user.group_info}..."
+          { groups_data[user.department_name][user.group_name] => [user] }
+        else
+          User.users.values.select(&:pair_sending).group_by { groups_data[it.department_name][it.group_name] }
         end
-      end
-      futures.each(&:wait)
-    end
-
-    def send_pair_notification time, user: nil
-      logger.info "Sending pair notification for #{time}..."
-
-      groups_data = @parser.fetch_all_groups @parser.fetch_departments
-      groups = if user
-        logger.debug "Sending pair notification for #{time} to #{user.id} with group #{user.group_info}..."
-        {groups_data[user.department_name][user.group_name] => [user]}
-      else
-        User.users.values.select(&:pair_sending).group_by { groups_data[it.department_name][it.group_name] }
-      end
       logger.debug "Sending pair notification to #{groups.size} groups..."
 
       futures = groups.map do |(sid, gr), users|
         Concurrent::Future.execute(executor: @thread_pool) do
-          send_pair_notification_for_group(sid:, gr:, users:, time:)
-        rescue => e
+          send_pair_notification_for_group(sid: sid, gr: gr, users: users, time: time)
+        rescue StandardError => e
           logger.error "Failed to send pair notification for group #{gr}: #{e.detailed_message}"
           logger.error e.backtrace.join("\n")
         end
@@ -309,33 +304,31 @@ module Raspishika
     end
 
     def send_pair_notification_for_group(sid:, gr:, users:, time:)
-      return unless sid && gr
-      return if users.empty? # NOTE: Maybe it's useless line.
+      return unless sid && gr && users.any?
 
-      raw_schedule = Cache.fetch(:"schedule_#{sid}_#{gr}") do
-        @parser.fetch_schedule users.first.group_info
-      end
+      raw_schedule = @parser.fetch_schedule users.first.group_info
       if raw_schedule.nil?
         logger.error "Failed to fetch schedule for #{users.first.group_info}"
         return
       end
 
-      pair = Schedule.from_raw(raw_schedule).now(time:)&.pair(0)
+      pair = Schedule.from_raw(raw_schedule).now(time: time)&.pair(0)
       return unless pair
 
-      text = case pair.data.dig(0, :pairs, 0, :type)
-      when :subject, :exam, :consultation
-        "Следующая пара в кабинете %{classroom}:\n%{discipline}\n%{teacher}" %
-          pair.data.dig(0, :pairs, 0, :content)
-      else
-        logger.debug "No pairs left for the group"
-        return
-      end
+      text =
+        case pair.data.dig(0, :pairs, 0, :type)
+        when :subject, :exam, :consultation
+          format("Следующая пара в кабинете %<classroom>s:\n%<discipline>s\n%<teacher>s",
+                 pair.data.dig(0, :pairs, 0, :content))
+        else
+          logger.debug 'No pairs left for the group'
+          return
+        end
 
       logger.debug "Sending pair notification to #{users.size} users of group #{users.first.group_info[:group_name]}..."
       users.map(&:id).each do |chat_id|
-        bot.api.send_message(chat_id:, text:)
-      rescue => e
+        bot.api.send_message(chat_id: chat_id, text: text)
+      rescue StandardError => e
         logger.error "Failed to send pair notification of group #{gr} to #{chat_id}: #{e.detailed_message}"
         logger.error e.backtrace.join("\n\t")
       end
@@ -359,12 +352,9 @@ module Raspishika
       return unless message.text
 
       begin
-        short_text = message.text.size > 32 ? message.text[0...32] + '…' : message.text
-        logger.debug(
-          "[#{message.chat.id}]" \
-          " #{message.from.full_name} @#{message.from.username} ##{message.from.id} =>" \
-          " #{short_text.inspect}"
-        )
+        short_text = message.text.size > 32 ? "#{message.text[0...32]}…" : message.text
+        logger.debug("[#{message.chat.id}] #{message.from.full_name} @#{message.from.username} ##{message.from.id} =>" \
+                     " #{short_text.inspect}")
 
         user = User[message.chat.id]
         if message.text.downcase != '/start' && user.statistics[:start].nil?
@@ -382,47 +372,59 @@ module Raspishika
             it
           end
         end
+
         case text
         when '/start' then start_message message, user
         when '/help' then help_message message, user
         when '/stop' then stop message, user
-        when '/set_group', LABELS[:select_group].downcase then configure_group message, user
-        when ->(t) { user.state.start_with?('select_department') &&
-                     user.departments.map(&:downcase).include?(t) }
+
+        when '/set_group', LABELS[:my_group].downcase then configure_group message, user
+        when ->(t) { user.state.start_with?('select_department') && user.departments.map(&:downcase).include?(t) }
           select_department message, user
         when ->(t) { user.groups.keys.map(&:downcase).include?(t) }
           select_group message, user
+
         when '/week', LABELS[:week].downcase then send_week_schedule message, user
         when '/tomorrow', LABELS[:tomorrow].downcase then send_tomorrow_schedule message, user
         when '/left', LABELS[:left].downcase then send_left_schedule message, user
-        when '/quick_schedule', LABELS[:quick_schedule].downcase
-          configure_group(message, user, quick: true)
-        when '/configure_sending', LABELS[:configure_sending].downcase
-          configure_sending message, user
+
+        when LABELS[:quick_schedule].downcase
+          ask_for_quick_schedule_type message, user
+        when '/quick_schedule', LABELS[:other_group].downcase
+          configure_group message, user, quick: true
+        when '/teacher_schedule', LABELS[:teacher].downcase
+          ask_for_teacher message, user
+        when ->(t) { user.state == :teacher && t == 'отмена' }
+          cancel_action message, user
+        when ->(t) { user.state == :teacher && validate_teacher_name(t) }
+          send_teacher_schedule message, user
+        when ->(_) { user.state == :teacher }
+          reask_for_teacher message, user, text
+
+        when LABELS[:settings].downcase
+          send_settings_menu message, user
         when '/configure_daily_sending', 'ежедневная рассылка'
           configure_daily_sending message, user
-        when %r(^\d{1,2}:\d{2}$)
-          if (message.text =~ %r(^\d{1,2}:\d{2}$) && Time.parse(message.text) rescue false)
+        when /^\d{1,2}:\d{2}$/
+          if begin Time.parse message.text
+          rescue StandardError then false
+          end
             set_daily_sending message, user
           else
-            bot.api.send_message(
-              chat_id: message.chat.id,
-              text: "Неправильный формат времени, попробуйте ещё раз",
-            )
+            bot.api.send_message(chat_id: message.chat.id, text: 'Неправильный формат времени, попробуйте ещё раз')
           end
         when '/daily_sending_off', 'отключить' then disable_daily_sending message, user
-        when '/pair_sending_on', LABELS[:pair_sending_on].downcase
-          enable_pair_sending message, user
-        when '/pair_sending_off', LABELS[:pair_sending_off].downcase
-          disable_pair_sending message, user
+        when '/pair_sending_on', LABELS[:pair_sending_on].downcase then enable_pair_sending message, user
+        when '/pair_sending_off', LABELS[:pair_sending_off].downcase then disable_pair_sending message, user
         when '/cancel', 'отмена' then cancel_action message, user
-        when %r(^/debug\s+\w+$) then debug_command message, user
+        when %r{^/debug\s+\w+$} then debug_command message, user
+        else logger.debug "Unknown command: #{text.inspect}"
         end
-      rescue => e
+      rescue StandardError => e
         log_error message, e
         bot.api.send_message(
           chat_id: message.chat.id,
-          text: "Произошла ошибка. Попробуйте позже.",
+          text: 'Произошла ошибка. Попробуйте позже.',
           reply_markup: default_reply_markup(user.id)
         )
       end

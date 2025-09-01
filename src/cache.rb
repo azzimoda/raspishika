@@ -8,24 +8,25 @@ module Raspishika
     @logger = nil
     @data = {}
     @store = PStore.new File.expand_path 'data/cache.pstore', ROOT_DIR
-    @mutex = Mutex.new
+    @cache_mutex = Mutex.new
+    @store_mutex = Mutex.new
 
     class << self
       attr_accessor :logger
     end
 
     # If `expires_in` is `nil`, the cache will not expire. If `expires_in` is 0, the will be always expired.
-    def self.fetch(key, expires_in: DEFAULT_CACHE_EXPIRATION, allow_nil: false, file: false, log: true, &block)
+    def self.fetch(
+      key, expires_in: DEFAULT_CACHE_EXPIRATION, allow_nil: false, file: false, log: true, unsafe: false, &block
+    )
       if DEFAULT_CACHE_EXPIRATION.zero?
         logger&.debug "Skipping caching for #{key.inspect} because of environment configuration..." if log
         return block.call
       end
 
-      if @mutex.locked?
-        return transaction(key, expires_in: expires_in, allow_nil: allow_nil, file: file, log: log, &block)
-      end
+      return transaction(key, expires_in: expires_in, allow_nil: allow_nil, file: file, log: log, &block) if unsafe
 
-      @mutex.synchronize do
+      @cache_mutex.synchronize do
         transaction(key, expires_in: expires_in, allow_nil: allow_nil, file: file, log: log, &block)
       end
     end
@@ -56,24 +57,28 @@ module Raspishika
     end
 
     def self.get_entry(key, file: false)
-      if file
-        @store.transaction(true) { @store[key] if @store.root? key }
-      elsif @data[key]
-        @data[key]
+      @store_mutex.synchronize do
+        if file
+          @store.transaction(true) { @store[key] if @store.root? key }
+        else
+          @data[key]
+        end
       end
     end
 
     def self.set(key, value, file: false)
       new_cache = { value: value, timestamp: Time.now }
-      if file
-        @store.transaction { (@store[key] = new_cache)[:value] }
-      else
-        (@data[key] = new_cache)[:value]
+      @store_mutex.synchronize do
+        if file
+          @store.transaction { (@store[key] = new_cache)[:value] }
+        else
+          (@data[key] = new_cache)[:value]
+        end
       end
     end
 
     def self.clear
-      @mutex.synchronize { @data.clear }
+      @store_mutex.synchronize { @data.clear }
     end
   end
 end

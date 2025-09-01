@@ -1,10 +1,11 @@
+# frozen_string_literal: true
+
 require 'concurrent'
 require 'date'
 require 'slop'
 
 module Raspishika
   ROOT_DIR = File.expand_path('..', __dir__).freeze
-  MAX_RETRIES = 5
 
   begin
     OPTIONS = Slop.parse do |opts|
@@ -22,7 +23,7 @@ module Raspishika
     end
   rescue Slop::UnknownOption => e
     puts "Error: #{e.message}."
-    puts "Use --help for help."
+    puts 'Use --help for help.'
   end
 end
 
