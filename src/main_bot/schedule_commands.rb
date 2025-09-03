@@ -9,6 +9,8 @@ module Raspishika
     private
 
     def send_week_schedule(message, user, quick: nil)
+      user.state = User::State::DEFAULT
+
       group_info =
         if quick
           logger.debug "Quick schedule: #{quick.inspect}"
@@ -47,6 +49,8 @@ module Raspishika
     end
 
     def send_tomorrow_schedule(message, user)
+      user.state = User::State::DEFAULT
+
       unless user.department_name && user.group_name
         bot.api.send_message(chat_id: user.id, text: 'Группа не выбрана')
         return configure_group(message, user)
@@ -75,6 +79,8 @@ module Raspishika
     end
 
     def send_left_schedule(message, user)
+      user.state = User::State::DEFAULT
+
       unless user.department_name && user.group_name
         bot.api.send_message(chat_id: user.id, text: 'Группа не выбрана')
         return configure_group(message, user)
@@ -105,6 +111,7 @@ module Raspishika
     end
 
     def ask_for_quick_schedule_type(_message, user)
+      user.state = User::State::SELECTING_QUICK_SCHEDULE
       bot.api.send_message(
         chat_id: user.id,
         text: 'Какое расписание?',
@@ -120,12 +127,12 @@ module Raspishika
         chat_id: user.id,
         text: 'Пришли полное имя или фамилию преподавателя',
         reply_markup: {
-          keyboard: [['Отмена']],
+          keyboard: [['Отмена']] + user.recent_teachers.each_slice(2).to_a,
           resize_keyboard: true,
           one_time_keyboard: true
         }.to_json
       )
-      user.state = :teacher
+      user.state = User::State::SELECTING_TEACHER
     end
 
     def reask_for_teacher(_message, user, name)
@@ -142,7 +149,7 @@ module Raspishika
           one_time_keyboard: true
         }.to_json
       )
-      user.state = :teacher
+      user.state = User::State::SELECTING_TEACHER
     end
 
     def send_teacher_schedule(message, user)
@@ -159,6 +166,9 @@ module Raspishika
       make_photo = -> { Faraday::UploadIO.new file_path, 'image/png' }
       reply_markup = default_reply_markup user.id
 
+      user.push_recent_teacher teacher_name
+      user.state = User::State::DEFAULT
+
       bot.api.send_photo(chat_id: user.id, photo: make_photo.call, reply_markup: reply_markup)
       if schedule
         user.push_command_usage command: message.text, ok: true
@@ -173,7 +183,6 @@ module Raspishika
         report("Failed to fetch schedule for #{teacher_name} (#{teacher_id})", photo: make_photo.call, log: 20)
       end
       bot.api.delete_message(chat_id: sent_message.chat.id, message_id: sent_message.message_id)
-      user.state = :default
     end
 
     def validate_teacher_name(name)

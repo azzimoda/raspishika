@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module Raspishika
   class Bot
     private
@@ -10,7 +12,7 @@ module Raspishika
 
         bot.api.send_message(
           chat_id: user.id,
-          text: "Не удалось загрузить отделения",
+          text: 'Не удалось загрузить отделения',
           reply_markup: default_reply_markup(user.id)
         )
 
@@ -18,14 +20,14 @@ module Raspishika
       end
 
       user.departments = departments.keys
-      user.state = quick ? :select_department_quick : :select_department
+      user.state = quick ? User::State::SELECTING_DEPARTMENT_QUICK : User::State::SELECTING_DEPARTMENT
       user.push_command_usage command: message.text, ok: true
 
       bot.api.send_message(
         chat_id: user.id,
-        text: "Выбери отделение",
+        text: 'Выбери отделение',
         reply_markup: {
-          keyboard: [["Отмена"]] + departments.keys.each_slice(2).to_a,
+          keyboard: [['Отмена']] + departments.keys.each_slice(2).to_a,
           resize_keyboard: true,
           one_time_keyboard: true
         }.to_json
@@ -41,22 +43,23 @@ module Raspishika
 
         bot.api.send_message(
           chat_id: message.chat.id,
-          text: "Не удалось загрузить группы для этого отделения",
+          text: 'Не удалось загрузить группы для этого отделения',
           reply_markup: default_reply_markup(user.id)
         )
+        user.state = User::State::DEFAULT
         return
       end
 
       user.department_name_temp = message.text
       user.groups = groups
-      user.state = user.state.end_with?('quick') ? :select_group_quick : :select_group
+      user.state = user.selecting_quick? ? User::State::SELECTING_GROUP_QUICK : User::State::SELECTING_GROUP
       user.push_command_usage command: message.text, ok: true
 
       bot.api.send_message(
         chat_id: message.chat.id,
-        text: "Выбери группу",
+        text: 'Выбери группу',
         reply_markup: {
-          keyboard: [["Отмена"]] + groups.keys.each_slice(2).to_a,
+          keyboard: [['Отмена']] + groups.keys.each_slice(2).to_a,
           resize_keyboard: true,
           one_time_keyboard: true
         }.to_json
@@ -68,7 +71,7 @@ module Raspishika
 
       user.groups = {}
 
-      if user.state.end_with? 'quick'
+      if user.selecting_quick?
         send_week_schedule(
           message,
           user,
@@ -80,11 +83,11 @@ module Raspishika
 
         bot.api.send_message(
           chat_id: message.chat.id,
-          text: "Теперь #{message.chat.id > 0 ? 'ты' : 'вы'} в группе #{message.text}",
+          text: "Теперь #{message.chat.id.positive? ? 'ты' : 'вы'} в группе #{message.text}",
           reply_markup: default_reply_markup(user.id)
         )
       end
-      user.state = :default
+      user.state = User::State::DEFAULT
     end
 
     def send_settings_menu(message, user)
@@ -94,6 +97,7 @@ module Raspishika
       end
 
       user.push_command_usage command: message.text
+      user.state = User::State::SETTINGS
 
       pair_sending_label = user.pair_sending ? LABELS[:pair_sending_off] : LABELS[:pair_sending_on]
       bot.api.send_message(
@@ -105,20 +109,19 @@ module Raspishika
           one_time_keyboard: true
         }.to_json
       )
-      user.state = :select_senging_type
     end
 
     def configure_daily_sending(message, user)
-      user.state = :configure_daily_sending
       user.push_command_usage command: message.text
+      user.state = User::State::SETTING_DAILY_SENDING
 
-      current_configuration = user.daily_sending ? " (сейчас: `#{user.daily_sending}`)" : ""
+      current_configuration = user.daily_sending ? " (сейчас: `#{user.daily_sending}`)" : ''
       bot.api.send_message(
         chat_id: message.chat.id,
         text: "Выберите время для ежедневной рассылки#{current_configuration}\nНапример: `7:00`",
         parse_mode: 'Markdown',
         reply_markup: {
-          keyboard: [["Отмена"], ["Отключить"]],
+          keyboard: [['Отмена'], ['Отключить']],
           resize_keyboard: true,
           one_time_keyboard: true
         }.to_json
@@ -127,8 +130,8 @@ module Raspishika
 
     def set_daily_sending(message, user)
       user.daily_sending = Time.parse(message.text).strftime('%H:%M')
-      user.state = :default
       user.push_command_usage command: message.text
+      user.state = User::State::DEFAULT
 
       bot.api.send_message(
         chat_id: user.id,
@@ -152,8 +155,8 @@ module Raspishika
 
     def enable_pair_sending(message, user)
       user.pair_sending = true
-      user.state = :default
       user.push_command_usage command: message.text
+      user.state = User::State::DEFAULT
 
       bot.api.send_message(
         chat_id: message.chat.id,
@@ -164,8 +167,8 @@ module Raspishika
 
     def disable_pair_sending(message, user)
       user.pair_sending = false
-      user.state = :default
       user.push_command_usage command: message.text
+      user.state = User::State::DEFAULT
 
       bot.api.send_message(
         chat_id: message.chat.id,
@@ -177,10 +180,10 @@ module Raspishika
     def cancel_action(_message, user)
       reply_markup = default_reply_markup user.id
       case user.state
-      when :default
+      when User::State::DEFAULT
         bot.api.send_message(chat_id: user.id, text: 'Нечего отменять', reply_markup: reply_markup)
       else
-        user.state = :default
+        user.state = User::State::DEFAULT
         bot.api.send_message(chat_id: user.id, text: 'Действие отменено', reply_markup: reply_markup)
       end
     end

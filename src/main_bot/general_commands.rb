@@ -29,7 +29,6 @@ module Raspishika
       - /tomorrow — Расписание на завтра
       - /week — Расписание на неделю
       - /quick_schedule — Расписание другой группы
-      - /settings — Войти в меню настроек
       - /configure_daily_sending — Настроить ежедневную рассылку
       - /daily_sending_off — Выключить ежедневную рассылку
       - /pair_sending_on — Включить рассылку перед парами
@@ -45,26 +44,21 @@ module Raspishika
     private
 
     def start_message(message, user)
-      bot.api.send_message(
-        chat_id: message.chat.id,
-        text: START_MESSAGE,
-        reply_markup: default_reply_markup(user.id)
-      )
+      bot.api.send_message(chat_id: message.chat.id, text: START_MESSAGE, reply_markup: default_reply_markup(user.id))
       return if user.statistics[:start]
 
       user.statistics[:start] = Time.now
-      msg = "New user: #{message.chat.id}" \
-        " (@#{message.from.username}, #{message.from.first_name} #{message.from.last_name})"
+      user.state = User::State::DEFAULT
+
+      msg =
+        "New user: #{message.chat.id} (@#{message.from.username}, #{message.from.first_name} #{message.from.last_name})"
       report msg
       logger.debug msg
     end
 
     def help_message(message, user)
-      bot.api.send_message(
-        chat_id: message.chat.id,
-        text: HELP_MESSAGE,
-        reply_markup: default_reply_markup(user.id)
-      )
+      user.state = User::State::DEFAULT
+      bot.api.send_message(chat_id: message.chat.id, text: HELP_MESSAGE, reply_markup: default_reply_markup(user.id))
     end
 
     def stop(message, user)

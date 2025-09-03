@@ -5,6 +5,18 @@ require 'time'
 
 module Raspishika
   class User
+    module State
+      DEFAULT = :default
+      SELECTING_DEPARTMENT = :selecting_department
+      SELECTING_DEPARTMENT_QUICK = :selecting_department_quick
+      SELECTING_GROUP = :selecting_group
+      SELECTING_GROUP_QUICK = :selecting_group_quick
+      SELECTING_QUICK_SCHEDULE = :selecting_quick_schedule
+      SELECTING_TEACHER = :selecting_teacher
+      SETTINGS = :settings
+      SETTING_DAILY_SENDING = :setting_daily_sending
+    end
+
     BACKUP_FILE = File.expand_path('../data/users.json', __dir__)
     TEMP_FILE = File.expand_path('../data/cache/users.json.tmp', __dir__)
 
@@ -60,7 +72,8 @@ module Raspishika
     end
 
     def initialize(
-      id, department_name: nil, group_name: nil, daily_sending: nil, pair_sending: nil, statistics: nil, **
+      id, department_name: nil, group_name: nil, daily_sending: nil, pair_sending: nil, statistics: nil,
+      recent_groups: [], recent_teachers: [], **
     )
       @id = id
       @state = :default
@@ -80,12 +93,48 @@ module Raspishika
       @statistics[:last_commands] ||= []
       @statistics[:daily_sendings] ||= []
       @statistics[:pair_sendings] ||= []
+
+      @recent_groups = recent_groups
+      @recent_teachers = recent_teachers
     end
     attr_accessor :id, :state,
                   :group_name, :department_name,
                   :daily_sending, :pair_sending,
                   :departments, :groups, :department_name_temp, :department_url,
                   :statistics
+    attr_reader :recent_groups, :recent_teachers
+
+    def default?
+      state == State::DEFAULT
+    end
+
+    def selecting_department?
+      [State::SELECTING_DEPARTMENT, State::SELECTING_DEPARTMENT_QUICK].include? state
+    end
+
+    def selecting_group?
+      [State::SELECTING_GROUP, State::SELECTING_GROUP_QUICK].include? state
+    end
+
+    def selecting_quick?
+      [State::SELECTING_DEPARTMENT_QUICK, State::SELECTING_GROUP_QUICK].include? state
+    end
+
+    def quick_schedule?
+      state == State::SELECTING_QUICK_SCHEDULE
+    end
+
+    def selecting_teacher?
+      state == State::SELECTING_TEACHER
+    end
+
+    def settings?
+      state == State::SETTINGS
+    end
+
+    def setting_daily_sending?
+      state == State::SETTING_DAILY_SENDING
+    end
 
     def private?
       id.to_s.to_i.positive?
@@ -105,7 +154,8 @@ module Raspishika
 
     def to_h
       { department_name: department_name, group_name: group_name, daily_sending: daily_sending,
-        pair_sending: pair_sending, statistics: statistics }
+        pair_sending: pair_sending, statistics: statistics, recent_teachers: recent_teachers,
+        recent_groups: recent_groups }
     end
 
     def to_json(*)
@@ -134,6 +184,16 @@ module Raspishika
         pair_sendings << { process_time: process_time, ok: ok, timestamp: timestamp }
         pair_sendings.shift [0, pair_sendings.size - 100].max
       end
+    end
+
+    def push_recent_group(gname)
+      @recent_groups.unshift gname
+      @recent_groups = @recent_groups.uniq.first 6
+    end
+
+    def push_recent_teacher(tname)
+      @recent_teachers.unshift tname
+      @recent_teachers = @recent_teachers.uniq.first 6
     end
   end
 end

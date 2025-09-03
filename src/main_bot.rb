@@ -370,91 +370,100 @@ module Raspishika
     def handle_text_message(message)
       return unless message.text
 
-      begin
-        short_text = message.text.size > 32 ? "#{message.text[0...32]}…" : message.text
-        logger.debug("[#{message.chat.id}] #{message.from.full_name} @#{message.from.username} ##{message.from.id} =>" \
-                     " #{short_text.inspect}")
+      short_text = message.text.size > 32 ? "#{message.text[0...32]}…" : message.text
+      logger.debug("[#{message.chat.id}] #{message.from.full_name} @#{message.from.username} ##{message.from.id} =>" \
+                   " #{short_text.inspect}")
 
-        user = User[message.chat.id]
-        if message.text.downcase != '/start' && user.statistics[:start].nil?
-          user.statistics[:start] = Time.now
-          msg = "New user: #{message.chat.id}" \
-            " (@#{message.from.username}, #{message.from.first_name} #{message.from.last_name})"
-          logger.debug msg
-          report msg
-        end
-
-        text = message.text.downcase.then do
-          if it.end_with?("@#{@username.downcase}")
-            it.match(/^(.*)@#{@username.downcase}$/).match(1)
-          else
-            it
-          end
-        end
-
-        case text
-        when '/start' then start_message message, user
-        when '/help' then help_message message, user
-        when '/stop' then stop message, user
-
-        when '/set_group', LABELS[:my_group].downcase then configure_group message, user
-        when ->(t) { user.state.start_with?('select_department') && user.departments.map(&:downcase).include?(t) }
-          select_department message, user
-        when ->(t) { user.groups.keys.map(&:downcase).include?(t) }
-          select_group message, user
-
-        when '/week', LABELS[:week].downcase then send_week_schedule message, user
-        when '/tomorrow', LABELS[:tomorrow].downcase then send_tomorrow_schedule message, user
-        when '/left', LABELS[:left].downcase then send_left_schedule message, user
-
-        when LABELS[:quick_schedule].downcase
-          ask_for_quick_schedule_type message, user
-        when '/quick_schedule', LABELS[:other_group].downcase
-          configure_group message, user, quick: true
-        when '/teacher_schedule', LABELS[:teacher].downcase
-          ask_for_teacher message, user
-        when ->(t) { user.state == :teacher && t == 'отмена' }
-          cancel_action message, user
-        when ->(t) { user.state == :teacher && validate_teacher_name(t) }
-          send_teacher_schedule message, user
-        when ->(_) { user.state == :teacher }
-          reask_for_teacher message, user, text
-
-        when LABELS[:settings].downcase
-          send_settings_menu message, user
-        when '/configure_daily_sending', 'ежедневная рассылка'
-          configure_daily_sending message, user
-        when /^\d{1,2}:\d{2}$/
-          if begin Time.parse message.text
-          rescue StandardError then false
-          end
-            set_daily_sending message, user
-          else
-            bot.api.send_message(chat_id: message.chat.id, text: 'Неправильный формат времени, попробуйте ещё раз')
-          end
-        when '/daily_sending_off', 'отключить' then disable_daily_sending message, user
-        when '/pair_sending_on', LABELS[:pair_sending_on].downcase then enable_pair_sending message, user
-        when '/pair_sending_off', LABELS[:pair_sending_off].downcase then disable_pair_sending message, user
-        when '/cancel', 'отмена' then cancel_action message, user
-        when %r{^/debug\s+\w+$} then debug_command message, user
-        end
-      rescue StandardError => e
-        log_error message, e
-        bot.api.send_message(
-          chat_id: message.chat.id,
-          text: 'Произошла ошибка. Попробуйте позже.',
-          reply_markup: default_reply_markup(user.id)
-        )
+      user = User[message.chat.id]
+      if message.text.downcase != '/start' && user.statistics[:start].nil?
+        user.statistics[:start] = Time.now
+        msg = "New user: #{message.chat.id}" \
+          " (@#{message.from.username}, #{message.from.first_name} #{message.from.last_name})"
+        report msg
+        logger.debug msg
       end
+
+      text = message.text.downcase.then do
+        if it.end_with?("@#{@username.downcase}")
+          it.match(/^(.*)@#{@username.downcase}$/).match(1)
+        else
+          it
+        end
+      end
+
+      case text
+      when '/start' then start_message message, user
+      when '/help'  then help_message message, user
+      when '/stop'  then stop message, user
+
+      when '/week', LABELS[:week].downcase         then send_week_schedule message, user
+      when '/tomorrow', LABELS[:tomorrow].downcase then send_tomorrow_schedule message, user
+      when '/left', LABELS[:left].downcase         then send_left_schedule message, user
+
+      when '/set_group' then configure_group message, user
+      when '/configure_daily_sending' then configure_daily_sending message, user
+      when '/daily_sending_off', 'отключить' then disable_daily_sending message, user
+      when '/pair_sending_on', LABELS[:pair_sending_on].downcase then enable_pair_sending message, user
+      when '/pair_sending_off', LABELS[:pair_sending_off].downcase then disable_pair_sending message, user
+      when '/cancel', 'отмена' then cancel_action message, user
+
+      when ->(t) { user.selecting_department? && user.departments.map(&:downcase).include?(t) }
+        select_department message, user
+      when ->(_) { user.selecting_department? }
+        bot.api.send_message(chat_id: message.chat.id, text: 'Неверное название отделения, попробуй ещё раз')
+
+      when ->(t) { user.selecting_group? && user.groups.keys.map(&:downcase).include?(t) }
+        select_group message, user
+      when ->(_) { user.selecting_group? }
+        bot.api.send_message(chat_id: message.chat.id, text: 'Неверное название группы, попробуй ещё раз')
+
+      when ->(t) { user.default? && t == LABELS[:quick_schedule].downcase }
+        ask_for_quick_schedule_type message, user
+
+      when ->(t) { user.quick_schedule? && t == LABELS[:other_group].downcase || t == '/quick_schedule' }
+        configure_group message, user, quick: true
+      when ->(t) { user.quick_schedule? && t == LABELS[:teacher].downcase || t == '/teacher_schedule' }
+        ask_for_teacher message, user
+
+      when ->(_) { user.selecting_teacher? }
+        if validate_teacher_name text
+          send_teacher_schedule message, user
+        else
+          reask_for_teacher message, user, text
+        end
+
+      when ->(t) { user.default? && t == LABELS[:settings].downcase }         then send_settings_menu message, user
+      when ->(t) { user.settings? && t == LABELS[:my_group].downcase }        then configure_group message, user
+      when ->(t) { user.settings? && t == LABELS[:daily_sending].downcase }   then configure_daily_sending message, user
+      when ->(t) { user.settings? && t == LABELS[:pair_sending_on].downcase } then enable_pair_sending message, user
+      when ->(t) { user.settings? && t == LABELS[:pair_sending_off].downcase } then disable_pair_sending message, user
+
+      when ->(t) { user.setting_daily_sending? && t =~ /^\d{1,2}:\d{2}$/ }
+        if begin Time.parse message.text
+        rescue StandardError then false
+        end
+          set_daily_sending message, user
+        else
+          bot.api.send_message(chat_id: message.chat.id, text: 'Неправильный формат времени, попробуйте ещё раз')
+        end
+      when %r{^/debug\s+\w+$} then debug_command message, user
+      end
+    rescue StandardError => e
+      log_error message, e
+      bot.api.send_message(
+        chat_id: message.chat.id,
+        text: 'Произошла ошибка. Попробуйте позже.',
+        reply_markup: default_reply_markup(user.id)
+      )
     end
 
     def log_error(message, error)
       msgs = ["Unhandled error in `#handle_text_message`: #{error.detailed_message}",
               "Message from #{message.from.full_name} @#{message.from.username} ##{message.from.id}"]
       backtrace = error.backtrace.join "\n"
+      report("`#{msgs.join("\n")}`", backtrace: backtrace, log: 20)
       msgs.each { logger.error it }
       logger.debug "Backtrace:\n#{backtrace}"
-      report("`#{msgs.join("\n")}`", backtrace: backtrace, log: 20)
     end
 
     def default_reply_markup(id)
