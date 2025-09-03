@@ -178,7 +178,7 @@ module Raspishika
           page.goto('https://mnokol.tyuiu.ru/', timeout: TIMEOUT * 1000)
           sleep 1
           headers = generate_headers
-          logger.debug "HEADERS: #{headers.pretty_inspect}"
+          # logger.debug "HEADERS: #{headers.pretty_inspect}"
           page.set_extra_http_headers(**headers)
           html = nil
           page.goto(url, timeout: TIMEOUT * 1000)

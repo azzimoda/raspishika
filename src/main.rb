@@ -33,7 +33,7 @@ if (message = Raspishika::OPTIONS[:notify])
   require_relative 'notification'
 
   Raspishika::User.logger = Logger.new $stderr
-  Raspishika::User.restore
+  Raspishika::User.load
   Raspishika.notify message
   exit
 end

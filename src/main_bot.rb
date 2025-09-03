@@ -20,16 +20,12 @@ end
 module Raspishika
   class Bot
     TOKEN_FILE = File.expand_path('config/token', ROOT_DIR)
-    TOKEN = if OPTIONS[:token]
-      OPTIONS[:token]
-    else
-      begin
-        File.read(TOKEN_FILE).chomp
-      rescue Errno::ENOENT => e
-        logger.fatal e.detailed_message
-        logger.fatal "Please provide a token in #{TOKEN_FILE} or use --token option."
-        exit
-      end
+    TOKEN = OPTIONS[:token] || begin
+      File.read(TOKEN_FILE).chomp
+    rescue Errno::ENOENT => e
+      logger.fatal e.detailed_message
+      logger.fatal "Please provide a token in #{TOKEN_FILE} or use --token option."
+      exit
     end
     THEAD_POOL_SIZE = 20
 
@@ -94,27 +90,27 @@ module Raspishika
       @run = true
       @dev_bot = DevBot.new main_bot: self, logger: @logger
       @username = nil
-  
+
       ImageGenerator.logger = Cache.logger = User.logger = @logger
-      User.restore
+      User.load
     end
     attr_accessor :bot, :logger, :parser, :username
 
     def run
-      logger.info "Starting bot..."
-      @user_backup_thread = Thread.new(self, &:user_backup_loop)
-  
+      logger.info 'Starting bot...'
+      @user_backup_thread = Thread.new(self, &:users_save_loop)
+
       @dev_bot_thread = Thread.new(@dev_bot, &:run)
-  
+
       @parser.initialize_browser_thread
       sleep 1 until @parser.ready?
-  
+
       Telegram::Bot::Client.run(@token) do |bot|
         @bot = bot
         @username = bot.api.get_me.username
         logger.debug "Bot's username: #{@username}"
 
-        report "Bot started."
+        report 'Bot started.'
 
         bot.api.set_my_commands(commands: MY_COMMANDS)
 
@@ -122,11 +118,11 @@ module Raspishika
         if OPTIONS[:daily]
           @sending_thread = Thread.new(self, &:daily_sending_loop)
         else
-          logger.info "Daily sending is disabled"
+          logger.info 'Daily sending is disabled'
         end
 
         begin
-          logger.info "Starting bot listen loop..."
+          logger.info 'Starting bot listen loop...'
           bot.listen { |message| handle_message message }
         rescue Telegram::Bot::Exceptions::ResponseError => e
           "Telegram API error: #{e.detailed_message}".tap do |msg|
@@ -134,26 +130,26 @@ module Raspishika
             logger.error msg
             logger.error "Retrying... (#{@retries + 1}/#{MAX_RETRIES})"
           end
-  
+
           sleep 5
           @retries += 1
           retry if @retries < MAX_RETRIES
-          "Reached maximum retries! Stopping bot...".tap do |msg|
+          'Reached maximum retries! Stopping bot...'.tap do |msg|
             report "FATAL ERROR: #{msg}", log: 20
             logger.fatal msg
           end
-        rescue => e
+        rescue StandardError => e
           "Unhandled error in `bot.listen`: #{e.detailed_message}".tap do |msg|
             report(msg, backtrace: e.backtrace.join("\n"), log: 20)
             logger.error msg
             logger.error "Backtrace: #{e.backtrace.join("\n\t")}"
             logger.error "Retrying... (#{@retries + 1}/#{MAX_RETRIES})"
           end
-  
+
           sleep 5
           @retries += 1
           retry if @retries < MAX_RETRIES
-          "Reached maximum retries! Stopping bot...".tap do |msg|
+          'Reached maximum retries! Stopping bot...'.tap do |msg|
             report "FATAL ERROR: #{msg}", log: 20
             logger.fatal msg
           end
@@ -161,10 +157,10 @@ module Raspishika
       end
     rescue Interrupt
       puts
-      logger.warn "Keyboard interruption"
-    rescue => e
+      logger.warn 'Keyboard interruption'
+    rescue StandardError => e
       puts
-      logger.fatal "Unhandled error in the main method (#run):"
+      logger.fatal 'Unhandled error in the main method (#run):'
       logger.fatal e.detailed_message
       logger.fatal e.backtrace.join "\n"
     ensure
@@ -176,7 +172,7 @@ module Raspishika
       @run = false
 
       @user_backup_thread&.join
-      User.backup
+      User.save_all
 
       @dev_bot_thread&.kill
       @sending_thread&.join
@@ -191,19 +187,20 @@ module Raspishika
       @bot.api.send_message(*args, **kwargs)
     end
 
-    def user_backup_loop
+    def users_save_loop
       while @run
-        User.backup
-        (600).times do
+        User.save_all
+        600.times do
           break unless @run
+
           sleep 1
         end
       end
     end
 
     def daily_sending_loop
-      logger.info "Starting daily sending loop..."
-      last_sending_time = Time.now - 10*60
+      logger.info 'Starting daily sending loop...'
+      last_sending_time = Time.now - 2 * 60
 
       while @run
         current_time = Time.now
@@ -217,34 +214,37 @@ module Raspishika
             start_time = Time.now
             send_week_schedule(nil, user)
             user.push_daily_sending_report(
-              conf_time: it.daily_sending, process_time: Time.now - start_time, ok: true)
-          rescue => e
+              conf_time: it.daily_sending, process_time: Time.now - start_time, ok: true
+            )
+          rescue StandardError => e
             user.push_daily_sending_report(
-              conf_time: it.daily_sending, process_time: Time.now - start_time, ok: false)
+              conf_time: it.daily_sending, process_time: Time.now - start_time, ok: false
+            )
             msg = "Error while sending daily schedule: #{e.detailed_message}"
             backtrace = e.backtrace.join("\n")
-            report(msg, backtrace:)
+            report(msg, backtrace: backtrace)
             logger.error msg
             logger.error backtrace
           end
         end
         futures.each(&:wait)
-  
+
         if users_to_send.any?
           logger.debug "Daily sending for #{users_to_send.size} users took #{Time.now - current_time} seconds"
         end
-  
+
         last_sending_time = current_time
-  
+
         60.times do
           break unless @run
+
           sleep 1
         end
       end
     end
 
     def schedule_pair_sending
-      logger.info "Scheduling pair sending..."
+      logger.info 'Scheduling pair sending...'
 
       ['8:00', '9:45', '11:30', '13:45', '15:30', '17:15', '19:00'].each do |time|
         logger.debug "Scheduling sending for #{time}..."
@@ -274,7 +274,7 @@ module Raspishika
         return
       end
 
-      DebugCommands.send(debug_command_name, bot: self, user:, message:)
+      DebugCommands.send(debug_command_name, bot: self, user: user, message: message)
     end
 
     private
@@ -286,25 +286,30 @@ module Raspishika
       groups =
         if user
           logger.debug "Sending pair notification for #{time} to #{user.id} with group #{user.group_info}..."
-          { groups_data[user.department_name][user.group_name] => [user] }
+          { [user.department_name, user.group_name] => [user] }
         else
-          User.users.values.select(&:pair_sending).group_by { groups_data[it.department_name][it.group_name] }
+          User.users.values.select(&:pair_sending).group_by { [it.department_name, it.group_name] }
         end
       logger.debug "Sending pair notification to #{groups.size} groups..."
 
-      futures = groups.map do |(sid, gr), users|
+      futures = groups.map do |(_dname, gname), users|
         Concurrent::Future.execute(executor: @thread_pool) do
-          send_pair_notification_for_group(sid: sid, gr: gr, users: users, time: time)
+          send_pair_notification_for_group(users, time)
         rescue StandardError => e
-          logger.error "Failed to send pair notification for group #{gr}: #{e.detailed_message}"
-          logger.error e.backtrace.join("\n")
+          logger.error "Failed to send pair notification for #{gname}: #{e.detailed_message}"
+          logger.error e.backtrace.join("\n\t")
         end
       end
       futures.each(&:wait)
     end
 
-    def send_pair_notification_for_group(sid:, gr:, users:, time:)
-      return unless sid && gr && users.any?
+    def send_pair_notification_for_group(users, time)
+      if users.empty?
+        logger.warn 'Users array is empty'
+        return
+      end
+
+      logger.info "Sending pair notification to #{users.size} users of group #{users.first.group_name}"
 
       raw_schedule = @parser.fetch_schedule users.first.group_info
       if raw_schedule.nil?
@@ -325,11 +330,12 @@ module Raspishika
           return
         end
 
-      logger.debug "Sending pair notification to #{users.size} users of group #{users.first.group_info[:group_name]}..."
+      logger.debug "Sending pair notification to #{users.size} users of group #{users.first.group_name}..."
       users.map(&:id).each do |chat_id|
         bot.api.send_message(chat_id: chat_id, text: text)
       rescue StandardError => e
-        logger.error "Failed to send pair notification of group #{gr} to #{chat_id}: #{e.detailed_message}"
+        logger.error "Failed to send pair notification of group #{users.first.group_name} to #{chat_id}:" \
+                     "#{e.detailed_message}"
         logger.error e.backtrace.join("\n\t")
       end
     end
@@ -338,9 +344,9 @@ module Raspishika
       @dev_bot.report(*args, **kwargs)
     end
 
-    def handle_message message
+    def handle_message(message)
       # Skip messages sent more than 1 hour ago.
-      return if Time.at(message.date) < Time.now - 1*60*60
+      return if Time.at(message.date) < Time.now - 1 * 60 * 60
 
       case message
       when Telegram::Bot::Types::Message then handle_text_message message
@@ -348,7 +354,7 @@ module Raspishika
       end
     end
 
-    def handle_text_message message
+    def handle_text_message(message)
       return unless message.text
 
       begin
@@ -418,7 +424,6 @@ module Raspishika
         when '/pair_sending_off', LABELS[:pair_sending_off].downcase then disable_pair_sending message, user
         when '/cancel', 'отмена' then cancel_action message, user
         when %r{^/debug\s+\w+$} then debug_command message, user
-        else logger.debug "Unknown command: #{text.inspect}"
         end
       rescue StandardError => e
         log_error message, e
@@ -430,19 +435,17 @@ module Raspishika
       end
     end
 
-    def log_error message, error
-        msgs = [
-          "Unhandled error in `#handle_text_message`: #{error.detailed_message}",
-          "Message from #{message.from.full_name} @#{message.from.username} ##{message.from.id}"
-        ]
-        backtrace = error.backtrace.join "\n"
-        msgs.each { logger.error it }
-        logger.debug "Backtrace:\n#{backtrace}"
-        report("`#{msgs.join("\n")}`", backtrace:, log: 20)
+    def log_error(message, error)
+      msgs = ["Unhandled error in `#handle_text_message`: #{error.detailed_message}",
+              "Message from #{message.from.full_name} @#{message.from.username} ##{message.from.id}"]
+      backtrace = error.backtrace.join "\n"
+      msgs.each { logger.error it }
+      logger.debug "Backtrace:\n#{backtrace}"
+      report("`#{msgs.join("\n")}`", backtrace: backtrace, log: 20)
     end
 
-    def default_reply_markup id
-      id.to_s.to_i > 0 ? DEFAULT_REPLY_MARKUP : {remove_keyboard: true}.to_json
+    def default_reply_markup(id)
+      id.to_s.to_i.positive? ? DEFAULT_REPLY_MARKUP : { remove_keyboard: true }.to_json
     end
   end
 end
