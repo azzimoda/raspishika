@@ -28,6 +28,7 @@ module Raspishika
       exit
     end
     THEAD_POOL_SIZE = 20
+    MAX_RETRIES = 5
 
     LABELS = {
       left: 'Оставшиеся пары',
@@ -125,28 +126,24 @@ module Raspishika
           logger.info 'Starting bot listen loop...'
           bot.listen { |message| handle_message message }
         rescue Telegram::Bot::Exceptions::ResponseError => e
-          "Telegram API error: #{e.detailed_message}".tap do |msg|
-            report(msg, backtrace: e.backtrace.join("\n"), log: 20)
-            logger.error msg
-            logger.error "Retrying... (#{@retries + 1}/#{MAX_RETRIES})"
-          end
-
-          sleep 5
-          @retries += 1
-          retry if @retries < MAX_RETRIES
-          'Reached maximum retries! Stopping bot...'.tap do |msg|
-            report "FATAL ERROR: #{msg}", log: 20
-            logger.fatal msg
+          if handle_telegram_api_error(e)
+            "Telegram API error: #{e.detailed_message}".tap do |msg|
+              report(msg, backtrace: e.backtrace.join("\n"), log: 20)
+              logger.error msg
+              logger.error 'Retrying...'
+            end
+            logger.info 'Retrying...'
+            retry
           end
         rescue StandardError => e
           "Unhandled error in `bot.listen`: #{e.detailed_message}".tap do |msg|
             report(msg, backtrace: e.backtrace.join("\n"), log: 20)
             logger.error msg
-            logger.error "Backtrace: #{e.backtrace.join("\n\t")}"
-            logger.error "Retrying... (#{@retries + 1}/#{MAX_RETRIES})"
           end
+          logger.error "Backtrace: #{e.backtrace.join("\n\t")}"
+          logger.error "Retrying in 10 seconds... (#{@retries + 1}/#{MAX_RETRIES})"
 
-          sleep 5
+          sleep 10
           @retries += 1
           retry if @retries < MAX_RETRIES
           'Reached maximum retries! Stopping bot...'.tap do |msg|
@@ -165,6 +162,22 @@ module Raspishika
       logger.fatal e.backtrace.join "\n"
     ensure
       shutdown
+    end
+
+    def handle_telegram_api_error(err)
+      case err.error_code
+      when 429 # Too Many Requests
+        retry_after = begin
+          err.response['retry-after'].to_i + 10
+        rescue StandardError
+          10
+        end
+        logger.warn "Rate limited! Sleeping for #{retry_after} seconds..."
+        sleep retry_after
+      else
+        logger.error "Unhandled Telegram API error: #{err.error_code} (#{err.error_message})"
+        sleep 10
+      end
     end
 
     def shutdown
