@@ -34,9 +34,9 @@ module Raspishika
 
       bot.api.send_photo(chat_id: user.id, photo: make_photo.call, reply_markup: reply_markup)
       if schedule
-        user.push_command_usage command: message.text, ok: true
+        user.push_command_usage command: '/week', ok: true
       else
-        user.push_command_usage command: message.text, ok: false
+        user.push_command_usage command: '/week', ok: false
         bot.api.send_message(
           chat_id: user.id,
           text: 'Не удалось обновить расписание, *картинка может быть не актуальной!* Попробуйте позже.',
@@ -46,6 +46,9 @@ module Raspishika
         report("Failed to fetch schedule for #{group_info}", photo: make_photo.call, log: 20)
       end
       bot.api.delete_message(chat_id: sent_message.chat.id, message_id: sent_message.message_id)
+    rescue StandardError => e
+      user.push_command_usage command: '/week', ok: false
+      raise e
     end
 
     def send_tomorrow_schedule(message, user)
@@ -75,7 +78,10 @@ module Raspishika
       )
       bot.api.delete_message(chat_id: sent_message.chat.id, message_id: sent_message.message_id)
 
-      user.push_command_usage command: message.text
+      user.push_command_usage command: '/tomorrow'
+    rescue StandardError => e
+      user.push_command_usage command: '/tomorrow', ok: false
+      raise e
     end
 
     def send_left_schedule(message, user)
@@ -89,7 +95,7 @@ module Raspishika
       reply_markup = default_reply_markup user.id
 
       if Date.today.sunday?
-        user.push_command_usage command: message.text
+        user.push_command_usage command: '/left'
         bot.api.send_message(chat_id: user.id, text: 'Сегодня воскресенье, отдыхай!', reply_markup: reply_markup)
         return
       end
@@ -107,7 +113,10 @@ module Raspishika
       bot.api.send_message(chat_id: user.id, text: text, parse_mode: 'Markdown', reply_markup: reply_markup)
       bot.api.delete_message(chat_id: sent_message.chat.id, message_id: sent_message.message_id)
 
-      user.push_command_usage command: message.text
+      user.push_command_usage command: '/left'
+    rescue StandardError => e
+      user.push_command_usage command: '/left', ok: false
+      raise e
     end
 
     def ask_for_quick_schedule_type(_message, user)
@@ -120,6 +129,9 @@ module Raspishika
           resize_keyboard: true
         }.to_json
       )
+    rescue StandardError => e
+      user.push_command_usage command: '/teacher_schedule', ok: false
+      raise e
     end
 
     def ask_for_teacher(_message, user)
@@ -133,6 +145,9 @@ module Raspishika
         }.to_json
       )
       user.state = User::State::SELECTING_TEACHER
+    rescue StandardError => e
+      user.push_command_usage command: '/teacher_schedule', ok: false
+      raise e
     end
 
     def reask_for_teacher(_message, user, name)
@@ -150,6 +165,9 @@ module Raspishika
         }.to_json
       )
       user.state = User::State::SELECTING_TEACHER
+    rescue StandardError => e
+      user.push_command_usage command: '/teacher_schedule', ok: false
+      raise e
     end
 
     def send_teacher_schedule(message, user)
@@ -171,9 +189,9 @@ module Raspishika
 
       bot.api.send_photo(chat_id: user.id, photo: make_photo.call, reply_markup: reply_markup)
       if schedule
-        user.push_command_usage command: message.text, ok: true
+        user.push_command_usage command: '/teacher_schedule', ok: true
       else
-        user.push_command_usage command: message.text, ok: false
+        user.push_command_usage command: '/teacher_schedule', ok: false
         bot.api.send_message(
           chat_id: user.id,
           text: 'Не удалось обновить расписание, *картинка может быть не актуальной!* Попробуйте позже.',
@@ -183,10 +201,13 @@ module Raspishika
         report("Failed to fetch schedule for #{teacher_name} (#{teacher_id})", photo: make_photo.call, log: 20)
       end
       bot.api.delete_message(chat_id: sent_message.chat.id, message_id: sent_message.message_id)
+    rescue StandardError => e
+      user.push_command_usage command: '/teacher_schedule', ok: false
+      raise e
     end
 
     def validate_teacher_name(name)
-      names = parser.fetch_teachers_names.keys # TODO: fetch_teachers_names
+      names = parser.fetch_teachers_names.keys
       names.find { it.downcase == name.strip.downcase } ||
         FuzzyMatch.new(names).find_all(name).then { it.first if it.one? }
     end

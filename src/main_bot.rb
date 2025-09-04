@@ -36,7 +36,6 @@ module Raspishika
       week: 'Неделя',
 
       quick_schedule: 'Быстрое расписание',
-      select_group: 'Выбрать группу',
       settings: 'Настройки',
 
       other_group: 'Другая группа',
@@ -44,6 +43,7 @@ module Raspishika
 
       my_group: 'Моя группа',
       daily_sending: 'Ежедневная рассылка',
+      disable: 'Отключить',
       pair_sending_on: 'Вкл. рассылку перед парами',
       pair_sending_off: 'Выкл. рассылку перед парами'
     }.freeze
@@ -402,9 +402,9 @@ module Raspishika
 
       when '/set_group' then configure_group message, user
       when '/configure_daily_sending' then configure_daily_sending message, user
-      when '/daily_sending_off', 'отключить' then disable_daily_sending message, user
-      when '/pair_sending_on', LABELS[:pair_sending_on].downcase then enable_pair_sending message, user
-      when '/pair_sending_off', LABELS[:pair_sending_off].downcase then disable_pair_sending message, user
+      when '/daily_sending_off' then disable_daily_sending message, user
+      when '/pair_sending_on' then enable_pair_sending message, user
+      when '/pair_sending_off' then disable_pair_sending message, user
       when '/cancel', 'отмена' then cancel_action message, user
 
       when ->(t) { user.selecting_department? && user.departments.map(&:downcase).include?(t) }
@@ -438,6 +438,8 @@ module Raspishika
       when ->(t) { user.settings? && t == LABELS[:pair_sending_on].downcase } then enable_pair_sending message, user
       when ->(t) { user.settings? && t == LABELS[:pair_sending_off].downcase } then disable_pair_sending message, user
 
+      when ->(t) { user.setting_daily_sending? && t == LABELS[:disable].downcase }
+        disable_daily_sending message, user
       when ->(t) { user.setting_daily_sending? && t =~ /^\d{1,2}:\d{2}$/ }
         if begin Time.parse message.text
         rescue StandardError then false

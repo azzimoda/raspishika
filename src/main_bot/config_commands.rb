@@ -4,12 +4,10 @@ module Raspishika
   class Bot
     private
 
-    def configure_group(message, user, quick: false)
+    def configure_group(_message, user, quick: false)
       departments = parser.fetch_departments
 
       unless departments&.any?
-        user.push_command_usage command: message.text, ok: false
-
         bot.api.send_message(
           chat_id: user.id,
           text: 'Не удалось загрузить отделения',
@@ -21,7 +19,6 @@ module Raspishika
 
       user.departments = departments.keys
       user.state = quick ? User::State::SELECTING_DEPARTMENT_QUICK : User::State::SELECTING_DEPARTMENT
-      user.push_command_usage command: message.text, ok: true
 
       bot.api.send_message(
         chat_id: user.id,
@@ -32,6 +29,9 @@ module Raspishika
           one_time_keyboard: true
         }.to_json
       )
+    rescue StandardError => e
+      user.push_command_usage command: quick ? '/quick_schedule' : '/set_group', ok: false
+      raise e
     end
 
     def select_department(message, user)
@@ -39,8 +39,6 @@ module Raspishika
       groups = parser.fetch_all_groups departments
       groups = groups[message.text]
       unless groups&.any?
-        user.push_command_usage command: message.text, ok: false
-
         bot.api.send_message(
           chat_id: message.chat.id,
           text: 'Не удалось загрузить группы для этого отделения',
@@ -53,7 +51,6 @@ module Raspishika
       user.department_name_temp = message.text
       user.groups = groups
       user.state = user.selecting_quick? ? User::State::SELECTING_GROUP_QUICK : User::State::SELECTING_GROUP
-      user.push_command_usage command: message.text, ok: true
 
       bot.api.send_message(
         chat_id: message.chat.id,
@@ -64,6 +61,9 @@ module Raspishika
           one_time_keyboard: true
         }.to_json
       )
+    rescue StateError => e
+      user.push_command_usage command: user.selecting_quick? ? '/quick_schedule' : '/set_group', ok: false
+      raise e
     end
 
     def select_group(message, user)
@@ -77,6 +77,8 @@ module Raspishika
           user,
           quick: group_info.merge(department: user.department_name_temp, group: message.text)
         )
+
+        user.push_command_usage command: '/quick_schedule'
       else
         user.department_name = user.department_name_temp
         user.group_name = message.text
@@ -86,8 +88,13 @@ module Raspishika
           text: "Теперь #{message.chat.id.positive? ? 'ты' : 'вы'} в группе #{message.text}",
           reply_markup: default_reply_markup(user.id)
         )
+
+        user.push_command_usage command: '/set_group'
       end
       user.state = User::State::DEFAULT
+    rescue StandardError => e
+      user.push_command_usage command: user.selecting_quick? ? '/quick_schedule' : '/set_group', ok: false
+      raise e
     end
 
     def send_settings_menu(message, user)
@@ -96,7 +103,6 @@ module Raspishika
         return configure_group(message, user)
       end
 
-      user.push_command_usage command: message.text
       user.state = User::State::SETTINGS
 
       pair_sending_label = user.pair_sending ? LABELS[:pair_sending_off] : LABELS[:pair_sending_on]
@@ -109,10 +115,13 @@ module Raspishika
           one_time_keyboard: true
         }.to_json
       )
+      user.push_command_usage command: Bot::LABELS[:settings].downcase
+    rescue StandardError => e
+      user.push_command_usage command: Bot::LABELS[:settings].downcase, ok: false
+      raise e
     end
 
     def configure_daily_sending(message, user)
-      user.push_command_usage command: message.text
       user.state = User::State::SETTING_DAILY_SENDING
 
       current_configuration = user.daily_sending ? " (сейчас: `#{user.daily_sending}`)" : ''
@@ -126,11 +135,13 @@ module Raspishika
           one_time_keyboard: true
         }.to_json
       )
+    rescue StandardError => e
+      user.push_command_usage command: '/configure_daily_sending', ok: false
+      raise e
     end
 
     def set_daily_sending(message, user)
       user.daily_sending = Time.parse(message.text).strftime('%H:%M')
-      user.push_command_usage command: message.text
       user.state = User::State::DEFAULT
 
       bot.api.send_message(
@@ -139,23 +150,29 @@ module Raspishika
         parse_mode: 'Markdown',
         reply_markup: default_reply_markup(user.id)
       )
+      user.push_command_usage command: '/configure_daily_sending'
+    rescue StandardError => e
+      user.push_command_usage command: '/configure_daily_sending', ok: false
+      raise e
     end
 
     def disable_daily_sending(message, user)
       user.daily_sending = nil
-      user.state = :default
-      user.push_command_usage command: message.text
+      user.state = User::State::DEFAULT
 
       bot.api.send_message(
         chat_id: user.id,
-        text: "Ежедневная рассылка отключена",
+        text: 'Ежедневная рассылка отключена',
         reply_markup: default_reply_markup(user.id)
       )
+      user.push_command_usage command: '/configure_daily_sending'
+    rescue StandardError => e
+      user.push_command_usage command: '/configure_daily_sending', ok: false
+      raise e
     end
 
     def enable_pair_sending(message, user)
       user.pair_sending = true
-      user.push_command_usage command: message.text
       user.state = User::State::DEFAULT
 
       bot.api.send_message(
@@ -163,11 +180,14 @@ module Raspishika
         text: 'Рассылка перед парами включена',
         reply_markup: default_reply_markup(user.id)
       )
+      user.push_command_usage command: '/pair_sending_on'
+    rescue StandardError => e
+      user.push_command_usage command: '/pair_sending_on', ok: false
+      raise e
     end
 
     def disable_pair_sending(message, user)
       user.pair_sending = false
-      user.push_command_usage command: message.text
       user.state = User::State::DEFAULT
 
       bot.api.send_message(
@@ -175,6 +195,10 @@ module Raspishika
         text: 'Рассылка перед парами выключена',
         reply_markup: default_reply_markup(user.id)
       )
+      user.push_command_usage command: '/pair_sending_off'
+    rescue StandardError => e
+      user.push_command_usage command: '/pair_sending_off', ok: false
+      raise e
     end
 
     def cancel_action(_message, user)

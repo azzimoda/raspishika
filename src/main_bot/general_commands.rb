@@ -57,6 +57,7 @@ module Raspishika
     end
 
     def help_message(message, user)
+      user.push_command_usage command: '/help'
       user.state = User::State::DEFAULT
       bot.api.send_message(chat_id: message.chat.id, text: HELP_MESSAGE, reply_markup: default_reply_markup(user.id))
     end
