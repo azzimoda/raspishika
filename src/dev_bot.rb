@@ -18,9 +18,7 @@ module Raspishika
       { command: 'new_chats', description: 'Get new users for last N=1 hours' },
       { command: 'commands', description: 'Get commands usage statistics for last 24 hours' },
       { command: 'configuration', description: 'Get configuration statistics' },
-      { command: 'update_statistics_cache', description: 'Update statistics cache' },
-      { command: 'help', description: 'No help' },
-      { command: 'start', description: 'Start' }
+      { command: 'help', description: 'No help' }
     ].freeze
 
     def initialize(main_bot:, logger: nil)
@@ -92,6 +90,7 @@ module Raspishika
       sleep 5
       retries += 1
       retry if retries < MAX_RETRIES
+
       'Reached maximum retries! Stopping dev bot...'.tap do |msg|
         report "FATAL ERROR: #{msg}", log: 20
         logger.fatal('DevBot') { msg }
@@ -133,7 +132,6 @@ module Raspishika
       when '/configuration' then send_configuration_statistics
       when '/commands' then send_commands_statistics
       # TODO: /commands DAYS
-      when '/update_statistics_cache' then collect_statistics
       when '/new_chats' then send_new_chats
       when %r{/new_chats\s+(\d+)} then send_new_chats days: Regexp.last_match(1).to_i
       when %r{/notify_all\s+(.+)} then send_notification_to_all_users Regexp.last_match(1)
@@ -269,9 +267,7 @@ module Raspishika
         end
 
       chats_by_year = chats.group_by { it.group_name&.match(/.+-(\d\d)-\(\d+\)-\d+/)&.[](1) }.map do |k, v|
-        private_chats = v.count(&:private?).to_s.rjust(2)
-        supergroups = v.count(&:supergroup?).to_s.rjust(2)
-        "`#{k} => #{private_chats} PC, #{supergroups} GC`"
+        "`#{k} => #{v.size.to_s.rjust(2)}, #{v.group_by(&:group_name).size.to_s.rjust(2)} groups`"
       end
       chats_by_group = chats.group_by(&:group_name).sort_by { |_, v| v.size }.reverse.map do |k, v|
         "`#{DevBot.just_group(k)} => #{v.size.to_s.rjust(2)}`"
@@ -293,10 +289,9 @@ module Raspishika
     def send_configuration_statistics
       statistics = collect_statistics
 
-      daily_sending = statistics[:daily_sending_configuration].transform_keys(&:to_s)
-      daily_sending.sort_by!(&:first).map do |time, users|
+      daily_sending = statistics[:daily_sending_configuration].transform_keys(&:to_s).sort_by(&:first).map do |t, users|
         groups = users.map(&:group_name).uniq.size
-        format('`%5s => %2s groups, %2s users`', time || 'off', groups, users.size)
+        "`#{(t.to_s || 'off').ljust(5)} => #{groups.to_s.rjust(3)} groups, #{users.size.to_s.rjust(3)} chats`"
       end
       pair_sending = statistics[:pair_sending_configuration].map do |state, users|
         state =
@@ -306,7 +301,7 @@ module Raspishika
             state ? 'on' : 'off'
           end
         groups = users.map(&:group_name).uniq.size
-        format('`%5s => %2s groups, %2s users`', state, groups, users.size)
+        "`#{state.to_s.ljust(3)} => #{groups.to_s.rjust(3)} groups, #{users.size.to_s.rjust(3)} chats`"
       end
 
       text = <<~MARKDOWN
@@ -324,19 +319,9 @@ module Raspishika
     def send_commands_statistics
       statistics = collect_statistics
 
-      text = <<~MARKDOWN
-        `
-        /week                    => #{statistics[:command_usages][:week].size}
-        /tomorrow                => #{statistics[:command_usages][:tomorrow].size}
-        /left                    => #{statistics[:command_usages][:left].size}
-        /set_group               => #{statistics[:command_usages][:config_group].size}
-        /configure_sending       => #{statistics[:command_usages][:config_sending].size}
-        /configure_daily_sending => #{statistics[:command_usages][:daily_sending].size}
-        /pair_sending_on         => #{statistics[:command_usages][:pair_sending_on].size}
-        /pair_sending_off        => #{statistics[:command_usages][:pair_sending_off].size}
-        [other]                  => #{statistics[:command_usages][:other].size}
-        `
-      MARKDOWN
+      text = statistics[:command_usages].map do |k, v|
+        "`#{k.to_s.ljust(24)} => #{v.size.to_s.rjust(5)}`"
+      end.join("\n")
       bot.api.send_message(chat_id: admin_chat_id, text: text, parse_mode: 'Markdown')
     end
 
@@ -352,8 +337,18 @@ module Raspishika
         new_chats: [], # for last 24 hours
         daily_sending_configuration: {}, # time => chats
         pair_sending_configuration: {}, # state(nil,false,true) => chats
-        command_usages: { week: [], tomorrow: [], left: [], config_group: [], config_sending: [], daily_sending: [],
-                          pair_sending_on: [], pair_sending_off: [], other: [] }
+        command_usages: {
+          help: [],
+          week: [],
+          tomorrow: [],
+          left: [],
+          quick_schedule: [],
+          teacher_schedule: [],
+          set_group: [],
+          configure_daily_sending: [],
+          settings: [],
+          other: []
+        }
       }
       bot_name = bot.api.get_me.username.downcase
       User.users.each_value do |user|
@@ -375,8 +370,10 @@ module Raspishika
         statistics[:new_chats] << user if user.statistics[:start].then { it && it >= Time.now - 24 * 60 * 60 }
 
         commands_statistics = collect_commands_statistics user, bot_name
-
-        statistics[:command_usages].each { |k, v| v.push(*commands_statistics[k]) }
+        commands_statistics.each do |k, v|
+          statistics[:command_usages][k] ||= []
+          statistics[:command_usages][k] += v
+        end
       end
 
       logger.debug "Statistics collection took #{Time.now - start_time} seconds"
@@ -391,14 +388,19 @@ module Raspishika
         end
 
         case text
-        when '/week', Bot::LABELS[:week].downcase then :week
-        when '/tomorrow', Bot::LABELS[:tomorrow].downcase then :tomorrow
-        when '/left', Bot::LABELS[:left].downcase then :left
-        when '/set_group', Bot::LABELS[:select_group].downcase then :config_group
-        # when '/configure_sending', Bot::LABELS[:configure_sending].downcase then :config_sending
-        when '/configure_daily_sending', Bot::LABELS[:daily_sending].downcase then :daily_sending
-        when '/pair_sending_on', Bot::LABELS[:pair_sending_on].downcase then :pair_sending_on
-        when '/pair_sending_off', Bot::LABELS[:pair_sending_off].downcase then :pair_sending_off
+        when '/help'                         then :help
+
+        when '/week'                         then :week
+        when '/tomorrow'                     then :tomorrow
+        when '/left'                         then :left
+
+        when '/quick_schedule'               then :quick_schedule
+        when '/teacher_schedule'             then :teacher_schedule
+
+        when '/set_group'                    then :set_group
+        when '/configure_daily_sending'      then :configure_daily_sending
+
+        when Bot::LABELS[:settings].downcase then :settings
         else :other
         end
       end
