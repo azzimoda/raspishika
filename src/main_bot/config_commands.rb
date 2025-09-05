@@ -29,9 +29,6 @@ module Raspishika
           one_time_keyboard: true
         }.to_json
       )
-    rescue StandardError => e
-      user.push_command_usage command: quick ? '/quick_schedule' : '/set_group', ok: false
-      raise e
     end
 
     def select_department(message, user)
@@ -61,9 +58,6 @@ module Raspishika
           one_time_keyboard: true
         }.to_json
       )
-    rescue StateError => e
-      user.push_command_usage command: user.selecting_quick? ? '/quick_schedule' : '/set_group', ok: false
-      raise e
     end
 
     def select_group(message, user)
@@ -77,8 +71,6 @@ module Raspishika
           user,
           quick: group_info.merge(department: user.department_name_temp, group: message.text)
         )
-
-        user.push_command_usage command: '/quick_schedule'
       else
         user.department_name = user.department_name_temp
         user.group_name = message.text
@@ -88,13 +80,8 @@ module Raspishika
           text: "Теперь #{message.chat.id.positive? ? 'ты' : 'вы'} в группе #{message.text}",
           reply_markup: default_reply_markup(user.id)
         )
-
-        user.push_command_usage command: '/set_group'
       end
       user.state = User::State::DEFAULT
-    rescue StandardError => e
-      user.push_command_usage command: user.selecting_quick? ? '/quick_schedule' : '/set_group', ok: false
-      raise e
     end
 
     def send_settings_menu(message, user)
@@ -115,10 +102,6 @@ module Raspishika
           one_time_keyboard: true
         }.to_json
       )
-      user.push_command_usage command: Bot::LABELS[:settings].downcase
-    rescue StandardError => e
-      user.push_command_usage command: Bot::LABELS[:settings].downcase, ok: false
-      raise e
     end
 
     def configure_daily_sending(message, user)
@@ -135,9 +118,6 @@ module Raspishika
           one_time_keyboard: true
         }.to_json
       )
-    rescue StandardError => e
-      user.push_command_usage command: '/configure_daily_sending', ok: false
-      raise e
     end
 
     def set_daily_sending(message, user)
@@ -150,10 +130,6 @@ module Raspishika
         parse_mode: 'Markdown',
         reply_markup: default_reply_markup(user.id)
       )
-      user.push_command_usage command: '/configure_daily_sending'
-    rescue StandardError => e
-      user.push_command_usage command: '/configure_daily_sending', ok: false
-      raise e
     end
 
     def disable_daily_sending(message, user)
@@ -165,10 +141,6 @@ module Raspishika
         text: 'Ежедневная рассылка отключена',
         reply_markup: default_reply_markup(user.id)
       )
-      user.push_command_usage command: '/configure_daily_sending'
-    rescue StandardError => e
-      user.push_command_usage command: '/configure_daily_sending', ok: false
-      raise e
     end
 
     def enable_pair_sending(message, user)
@@ -180,10 +152,6 @@ module Raspishika
         text: 'Рассылка перед парами включена',
         reply_markup: default_reply_markup(user.id)
       )
-      user.push_command_usage command: '/pair_sending_on'
-    rescue StandardError => e
-      user.push_command_usage command: '/pair_sending_on', ok: false
-      raise e
     end
 
     def disable_pair_sending(message, user)
@@ -195,10 +163,6 @@ module Raspishika
         text: 'Рассылка перед парами выключена',
         reply_markup: default_reply_markup(user.id)
       )
-      user.push_command_usage command: '/pair_sending_off'
-    rescue StandardError => e
-      user.push_command_usage command: '/pair_sending_off', ok: false
-      raise e
     end
 
     def cancel_action(_message, user)

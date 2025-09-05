@@ -33,10 +33,7 @@ module Raspishika
       reply_markup = default_reply_markup user.id
 
       bot.api.send_photo(chat_id: user.id, photo: make_photo.call, reply_markup: reply_markup)
-      if schedule
-        user.push_command_usage command: '/week', ok: true
-      else
-        user.push_command_usage command: '/week', ok: false
+      unless schedule
         bot.api.send_message(
           chat_id: user.id,
           text: 'Не удалось обновить расписание, *картинка может быть не актуальной!* Попробуйте позже.',
@@ -46,9 +43,7 @@ module Raspishika
         report("Failed to fetch schedule for #{group_info}", photo: make_photo.call, log: 20)
       end
       bot.api.delete_message(chat_id: sent_message.chat.id, message_id: sent_message.message_id)
-    rescue StandardError => e
-      user.push_command_usage command: '/week', ok: false
-      raise e
+      throw :fail, true unless schedule
     end
 
     def send_tomorrow_schedule(message, user)
@@ -77,11 +72,6 @@ module Raspishika
         reply_markup: default_reply_markup(user.id)
       )
       bot.api.delete_message(chat_id: sent_message.chat.id, message_id: sent_message.message_id)
-
-      user.push_command_usage command: '/tomorrow'
-    rescue StandardError => e
-      user.push_command_usage command: '/tomorrow', ok: false
-      raise e
     end
 
     def send_left_schedule(message, user)
@@ -95,7 +85,6 @@ module Raspishika
       reply_markup = default_reply_markup user.id
 
       if Date.today.sunday?
-        user.push_command_usage command: '/left'
         bot.api.send_message(chat_id: user.id, text: 'Сегодня воскресенье, отдыхай!', reply_markup: reply_markup)
         return
       end
@@ -112,11 +101,6 @@ module Raspishika
 
       bot.api.send_message(chat_id: user.id, text: text, parse_mode: 'Markdown', reply_markup: reply_markup)
       bot.api.delete_message(chat_id: sent_message.chat.id, message_id: sent_message.message_id)
-
-      user.push_command_usage command: '/left'
-    rescue StandardError => e
-      user.push_command_usage command: '/left', ok: false
-      raise e
     end
 
     def ask_for_quick_schedule_type(_message, user)
@@ -129,9 +113,6 @@ module Raspishika
           resize_keyboard: true
         }.to_json
       )
-    rescue StandardError => e
-      user.push_command_usage command: '/teacher_schedule', ok: false
-      raise e
     end
 
     def ask_for_teacher(_message, user)
@@ -145,14 +126,11 @@ module Raspishika
         }.to_json
       )
       user.state = User::State::SELECTING_TEACHER
-    rescue StandardError => e
-      user.push_command_usage command: '/teacher_schedule', ok: false
-      raise e
     end
 
     def reask_for_teacher(_message, user, name)
       logger.info "Reasking for teacher with name #{name.inspect}..."
-      teachers = FuzzyMatch.new(parser.fetch_teachers_names.keys).find_all(name).first 6
+      teachers = FuzzyMatch.new(parser.fetch_teachers.keys).find_all(name).first 6
       logger.debug "Found teachers: #{teachers.inspect}"
 
       bot.api.send_message(
@@ -165,9 +143,6 @@ module Raspishika
         }.to_json
       )
       user.state = User::State::SELECTING_TEACHER
-    rescue StandardError => e
-      user.push_command_usage command: '/teacher_schedule', ok: false
-      raise e
     end
 
     def send_teacher_schedule(message, user)
@@ -175,7 +150,7 @@ module Raspishika
 
       teacher_name = validate_teacher_name message.text
       logger.debug "Teacher name: #{teacher_name.inspect}"
-      teachers = parser.fetch_teachers_names
+      teachers = parser.fetch_teachers
       teacher_id = teachers[teacher_name]
       logger.debug "Teacher id: #{teacher_id.inspect}"
       schedule = parser.fetch_teacher_schedule teacher_id, teacher_name
@@ -188,10 +163,7 @@ module Raspishika
       user.state = User::State::DEFAULT
 
       bot.api.send_photo(chat_id: user.id, photo: make_photo.call, reply_markup: reply_markup)
-      if schedule
-        user.push_command_usage command: '/teacher_schedule', ok: true
-      else
-        user.push_command_usage command: '/teacher_schedule', ok: false
+      unless schedule
         bot.api.send_message(
           chat_id: user.id,
           text: 'Не удалось обновить расписание, *картинка может быть не актуальной!* Попробуйте позже.',
@@ -201,13 +173,11 @@ module Raspishika
         report("Failed to fetch schedule for #{teacher_name} (#{teacher_id})", photo: make_photo.call, log: 20)
       end
       bot.api.delete_message(chat_id: sent_message.chat.id, message_id: sent_message.message_id)
-    rescue StandardError => e
-      user.push_command_usage command: '/teacher_schedule', ok: false
-      raise e
+      throw :fail, true unless schedule # TODO: Test
     end
 
     def validate_teacher_name(name)
-      names = parser.fetch_teachers_names.keys
+      names = parser.fetch_teachers.keys
       names.find { it.downcase == name.strip.downcase } ||
         FuzzyMatch.new(names).find_all(name).then { it.first if it.one? }
     end

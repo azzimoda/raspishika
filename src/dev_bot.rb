@@ -121,8 +121,9 @@ module Raspishika
     private
 
     def handle_message(message)
+      return unless message.chat.id == admin_chat_id
+
       case message.text.downcase
-      when ->(*) { admin_chat_id.nil? } then nil
       when %r{/log\s+(\d+)} then send_log lines: Regexp.last_match(1).to_i
       when '/log' then send_log
       when '/general' then send_general_statistics
@@ -400,7 +401,7 @@ module Raspishika
         when '/set_group'                    then :set_group
         when '/configure_daily_sending'      then :configure_daily_sending
 
-        when Bot::LABELS[:settings].downcase then :settings
+        when '/settings', Bot::LABELS[:settings].downcase then :settings
         else :other
         end
       end

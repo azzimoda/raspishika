@@ -99,58 +99,14 @@ module Raspishika
 
     def run
       logger.info 'Starting bot...'
-      @user_backup_thread = Thread.new(self, &:users_save_loop)
-
-      @dev_bot_thread = Thread.new(@dev_bot, &:run)
-
-      @parser.initialize_browser_thread
-      sleep 1 until @parser.ready?
-
       Telegram::Bot::Client.run(@token) do |bot|
         @bot = bot
-        @username = bot.api.get_me.username
-        logger.debug "Bot's username: #{@username}"
+
+        prepare_before_listen
 
         report 'Bot started.'
 
-        bot.api.set_my_commands(commands: MY_COMMANDS)
-
-        schedule_pair_sending
-        if OPTIONS[:daily]
-          @sending_thread = Thread.new(self, &:daily_sending_loop)
-        else
-          logger.info 'Daily sending is disabled'
-        end
-
-        begin
-          logger.info 'Starting bot listen loop...'
-          bot.listen { |message| handle_message message }
-        rescue Telegram::Bot::Exceptions::ResponseError => e
-          if handle_telegram_api_error(e)
-            "Telegram API error: #{e.detailed_message}".tap do |msg|
-              report(msg, backtrace: e.backtrace.join("\n"), log: 20)
-              logger.error msg
-              logger.error 'Retrying...'
-            end
-            logger.info 'Retrying...'
-            retry
-          end
-        rescue StandardError => e
-          "Unhandled error in `bot.listen`: #{e.detailed_message}".tap do |msg|
-            report(msg, backtrace: e.backtrace.join("\n"), log: 20)
-            logger.error msg
-          end
-          logger.error "Backtrace: #{e.backtrace.join("\n\t")}"
-          logger.error "Retrying in 10 seconds... (#{@retries + 1}/#{MAX_RETRIES})"
-
-          sleep 10
-          @retries += 1
-          retry if @retries < MAX_RETRIES
-          'Reached maximum retries! Stopping bot...'.tap do |msg|
-            report "FATAL ERROR: #{msg}", log: 20
-            logger.fatal msg
-          end
-        end
+        run_listener
       end
     rescue Interrupt
       puts
@@ -164,6 +120,57 @@ module Raspishika
       shutdown
     end
 
+    def prepare_before_listen
+      bot.api.set_my_commands(commands: MY_COMMANDS)
+      @username = bot.api.get_me.username
+      logger.debug "Bot's username: #{@username}"
+
+      @dev_bot_thread = Thread.new(@dev_bot, &:run)
+
+      @users_saving_loop = Thread.new(self, &:users_save_loop)
+
+      @parser.initialize_browser_thread
+      sleep 0.1 until @parser.ready?
+
+      schedule_pair_sending
+
+      if OPTIONS[:daily]
+        @sending_thread = Thread.new(self, &:daily_sending_loop)
+      else
+        logger.info 'Daily sending is disabled'
+      end
+    end
+
+    def run_listener
+      logger.info 'Starting bot listener...'
+      bot.listen { |message| handle_message message }
+    rescue Telegram::Bot::Exceptions::ResponseError => e
+      if handle_telegram_api_error(e)
+        "Telegram API error: #{e.detailed_message}".tap do |msg|
+          report(msg, backtrace: e.backtrace.join("\n"), log: 20)
+          logger.error msg
+        end
+        logger.error e.backtrace.join("\n\t")
+        logger.error 'Retrying...'
+        retry
+      end
+    rescue StandardError => e
+      "Unhandled error in `bot.listen`: #{e.detailed_message}".tap do |msg|
+        report(msg, backtrace: e.backtrace.join("\n"), log: 20)
+        logger.error msg
+      end
+      logger.error "Backtrace: #{e.backtrace.join("\n\t")}"
+      logger.error "Retrying in 10 seconds... (#{@retries + 1}/#{MAX_RETRIES})"
+
+      sleep 10
+      @retries += 1
+      retry if @retries < MAX_RETRIES
+      'Reached maximum retries! Stopping bot...'.tap do |msg|
+        report "FATAL ERROR: #{msg}", log: 20
+        logger.fatal msg
+      end
+    end
+
     def handle_telegram_api_error(err)
       case err.error_code
       when 429 # Too Many Requests
@@ -175,7 +182,7 @@ module Raspishika
         logger.warn "Rate limited! Sleeping for #{retry_after} seconds..."
         sleep retry_after
       else
-        logger.error "Unhandled Telegram API error: #{err.error_code} (#{err.error_message})"
+        logger.error "Unhandled Telegram API error: #{err.error_code} (#{err.detailed_message})"
         sleep 10
       end
     end
@@ -184,16 +191,16 @@ module Raspishika
       report 'Bot stopped.'
       @run = false
 
-      @user_backup_thread&.join
+      @users_saving_loop&.join
       User.save_all
 
       @dev_bot_thread&.kill
       @sending_thread&.join
       @parser.stop_browser_thread
 
-      @thread_pool&.shutdown
-      @thread_pool&.wait_for_termination(30)
-      @thread_pool&.kill if @thread_pool.running?
+      @thread_pool.shutdown
+      @thread_pool.wait_for_termination 60
+      @thread_pool.kill if @thread_pool.running?
     end
 
     def send_message(*args, **kwargs)
@@ -215,6 +222,8 @@ module Raspishika
       logger.info 'Starting daily sending loop...'
       last_sending_time = Time.now - 2 * 60
 
+      sending_thread_pool = Concurrent::FixedThreadPool.new(20)
+
       while @run
         current_time = Time.now
 
@@ -223,7 +232,7 @@ module Raspishika
         end
 
         futures = users_to_send.map do |user|
-          Concurrent::Future.execute(executor: @thread_pool) do
+          Concurrent::Future.execute(executor: sending_thread_pool) do
             start_time = Time.now
             send_week_schedule(nil, user)
             user.push_daily_sending_report(
@@ -254,6 +263,10 @@ module Raspishika
           sleep 1
         end
       end
+
+      sending_thread_pool.shutdown
+      sending_thread_pool.wait_for_termination 60
+      sending_thread_pool.kill if sending_thread_pool.running?
     end
 
     def schedule_pair_sending
@@ -295,7 +308,8 @@ module Raspishika
     def send_pair_notification(time, user: nil)
       logger.info "Sending pair notification for #{time}..."
 
-      groups_data = @parser.fetch_all_groups @parser.fetch_departments
+      sending_thread_pool = Concurrent::FixedThreadPool.new 20
+
       groups =
         if user
           logger.debug "Sending pair notification for #{time} to #{user.id} with group #{user.group_info}..."
@@ -306,7 +320,7 @@ module Raspishika
       logger.debug "Sending pair notification to #{groups.size} groups..."
 
       futures = groups.map do |(_dname, gname), users|
-        Concurrent::Future.execute(executor: @thread_pool) do
+        Concurrent::Future.execute(executor: sending_thread_pool) do
           send_pair_notification_for_group(users, time)
         rescue StandardError => e
           logger.error "Failed to send pair notification for #{gname}: #{e.detailed_message}"
@@ -314,6 +328,10 @@ module Raspishika
         end
       end
       futures.each(&:wait)
+
+      sending_thread_pool.shutdown
+      sending_thread_pool.wait_for_termination 60
+      sending_thread_pool.kill if sending_thread_pool.running?
     end
 
     def send_pair_notification_for_group(users, time)
@@ -365,6 +383,9 @@ module Raspishika
       when Telegram::Bot::Types::Message then handle_text_message message
       else logger.debug "Unhandled message type: #{message.class}"
       end
+
+      # TODO: Add response time metric to command statistics.
+      logger.debug "Message handled within #{Time.now - Time.at(message.date)} seconds"
     end
 
     def handle_text_message(message)
@@ -392,66 +413,112 @@ module Raspishika
       end
 
       case text
-      when '/start' then start_message message, user
-      when '/help'  then help_message message, user
-      when '/stop'  then stop message, user
+      when '/start'
+        handle_command(message, user, text, ok_stats: false) { start_message message, user }
+      when '/help'
+        handle_command(message, user, text) { help_message message, user }
+      when '/stop'
+        handle_command(message, user, text, ok_stats: false) { stop message, user }
 
-      when '/week', LABELS[:week].downcase         then send_week_schedule message, user
-      when '/tomorrow', LABELS[:tomorrow].downcase then send_tomorrow_schedule message, user
-      when '/left', LABELS[:left].downcase         then send_left_schedule message, user
+      when '/week'
+        handle_command(message, user, text) { send_week_schedule message, user }
+      when '/tomorrow'
+        handle_command(message, user, text) { send_tomorrow_schedule message, user }
+      when '/left'
+        handle_command(message, user, text) { send_left_schedule message, user }
 
-      when '/set_group' then configure_group message, user
-      when '/configure_daily_sending' then configure_daily_sending message, user
-      when '/daily_sending_off' then disable_daily_sending message, user
-      when '/pair_sending_on' then enable_pair_sending message, user
-      when '/pair_sending_off' then disable_pair_sending message, user
-      when '/cancel', 'отмена' then cancel_action message, user
+      when '/set_group'
+        handle_command(message, user, text, ok_stats: false) { configure_group message, user }
+      when '/configure_daily_sending'
+        handle_command(message, user, text, ok_stats: false) { configure_daily_sending message, user }
+      when '/daily_sending_off'
+        handle_command(message, user, text) { disable_daily_sending message, user }
+      when '/pair_sending_on'
+        handle_command(message, user, text) { enable_pair_sending message, user }
+      when '/pair_sending_off'
+        handle_command(message, user, text) { disable_pair_sending message, user }
+      when '/cancel', 'отмена'
+        handle_command(message, user, '/cancel') { cancel_action message, user }
+
+      when ->(t) { user.default? && t == LABELS[:week].downcase }
+        handle_command(message, user, '/week') { send_week_schedule message, user }
+      when ->(t) { user.default? && t == LABELS[:tomorrow].downcase }
+        handle_command(message, user, '/tomorrow') { send_tomorrow_schedule message, user }
+      when ->(t) { user.default? && t == LABELS[:left].downcase }
+        handle_command(message, user, '/left') { send_left_schedule message, user }
 
       when ->(t) { user.selecting_department? && user.departments.map(&:downcase).include?(t) }
-        select_department message, user
+        handle_command(message, user, user.selecting_quick? ? '/quick_schedule' : '/set_group', ok_stats: false) do
+          select_department message, user
+        end
       when ->(_) { user.selecting_department? }
-        bot.api.send_message(chat_id: message.chat.id, text: 'Неверное название отделения, попробуй ещё раз')
+        handle_command(message, user, user.selecting_quick? ? '/quick_schedule' : '/set_group', ok_stats: false) do
+          bot.api.send_message(chat_id: message.chat.id, text: 'Неверное название отделения, попробуй ещё раз')
+        end
 
       when ->(t) { user.selecting_group? && user.groups.keys.map(&:downcase).include?(t) }
-        select_group message, user
+        handle_command(message, user, user.selecting_quick? ? '/quick_schedule' : '/set_group') do
+          select_group message, user
+        end
       when ->(_) { user.selecting_group? }
-        bot.api.send_message(chat_id: message.chat.id, text: 'Неверное название группы, попробуй ещё раз')
+        handle_command(message, user, user.selecting_quick? ? '/quick_schedule' : '/set_group') do
+          bot.api.send_message(chat_id: message.chat.id, text: 'Неверное название группы, попробуй ещё раз')
+        end
 
       when ->(t) { user.default? && t == LABELS[:quick_schedule].downcase }
-        ask_for_quick_schedule_type message, user
+        handle_command(message, user, '/quick_schedule', ok_stats: false) { ask_for_quick_schedule_type message, user }
 
       when ->(t) { user.quick_schedule? && t == LABELS[:other_group].downcase || t == '/quick_schedule' }
-        configure_group message, user, quick: true
+        handle_command(message, user, '/quick_schedule', ok_stats: false) { configure_group message, user, quick: true }
       when ->(t) { user.quick_schedule? && t == LABELS[:teacher].downcase || t == '/teacher_schedule' }
-        ask_for_teacher message, user
+        handle_command(message, user, '/teacher_schedule', ok_stats: false) { ask_for_teacher message, user }
 
       when ->(_) { user.selecting_teacher? }
         if validate_teacher_name text
-          send_teacher_schedule message, user
+          handle_command(message, user, '/teacher_schedule') { send_teacher_schedule message, user }
         else
-          reask_for_teacher message, user, text
+          handle_command(message, user, '/teacher_schedule', ok_stats: false) { reask_for_teacher message, user, text }
         end
 
-      when ->(t) { user.default? && t == LABELS[:settings].downcase }         then send_settings_menu message, user
-      when ->(t) { user.settings? && t == LABELS[:my_group].downcase }        then configure_group message, user
-      when ->(t) { user.settings? && t == LABELS[:daily_sending].downcase }   then configure_daily_sending message, user
-      when ->(t) { user.settings? && t == LABELS[:pair_sending_on].downcase } then enable_pair_sending message, user
-      when ->(t) { user.settings? && t == LABELS[:pair_sending_off].downcase } then disable_pair_sending message, user
+      when ->(t) { user.default? && t == LABELS[:settings].downcase }
+        handle_command(message, user, '/settings', ok_stats: false) { send_settings_menu message, user }
+      when ->(t) { user.settings? && t == LABELS[:my_group].downcase }
+        handle_command(message, user, '/set_group', ok_stats: false) { configure_group message, user }
+      when ->(t) { user.settings? && t == LABELS[:daily_sending].downcase }
+        handle_command(message, user, '/configure_daily_sending', ok_stats: false) do
+          configure_daily_sending message, user
+        end
+      when ->(t) { user.settings? && t == LABELS[:pair_sending_on].downcase }
+        handle_command(message, user, '/pair_sending_on') { enable_pair_sending message, user }
+      when ->(t) { user.settings? && t == LABELS[:pair_sending_off].downcase }
+        handle_command(message, user, '/pair_sending_off') { disable_pair_sending message, user }
 
       when ->(t) { user.setting_daily_sending? && t == LABELS[:disable].downcase }
-        disable_daily_sending message, user
+        handle_command(message, user, '/daily_sending_off') { disable_daily_sending message, user }
       when ->(t) { user.setting_daily_sending? && t =~ /^\d{1,2}:\d{2}$/ }
         if begin Time.parse message.text
         rescue StandardError then false
         end
-          set_daily_sending message, user
+          handle_command(message, user, '/set_daily_sending') { set_daily_sending message, user }
         else
-          bot.api.send_message(chat_id: message.chat.id, text: 'Неправильный формат времени, попробуйте ещё раз')
+          handle_command(message, user, '/configure_daily_sending', ok_stats: false) do
+            bot.api.send_message(chat_id: message.chat.id, text: 'Неправильный формат времени, попробуйте ещё раз')
+          end
         end
       when %r{^/debug\s+\w+$} then debug_command message, user
       end
+    end
+
+    def handle_command(message, user, command_name, ok_stats: true)
+      if catch :fail do
+        yield
+        user.push_command_usage command: command_name, ok: true if ok_stats
+      end
+        user.push_command_usage command: command_name, ok: false
+      end
     rescue StandardError => e
       log_error message, e
+      user.push_command_usage command: command_name, ok: false
       bot.api.send_message(
         chat_id: message.chat.id,
         text: 'Произошла ошибка. Попробуйте позже.',
@@ -462,10 +529,9 @@ module Raspishika
     def log_error(message, error)
       msgs = ["Unhandled error in `#handle_text_message`: #{error.detailed_message}",
               "Message from #{message.from.full_name} @#{message.from.username} ##{message.from.id}"]
-      backtrace = error.backtrace.join "\n"
-      report("`#{msgs.join("\n")}`", backtrace: backtrace, log: 20)
+      report("`#{msgs.join("\n")}`", backtrace: error.backtrace.join("\n"), log: 20)
       msgs.each { logger.error it }
-      logger.debug "Backtrace:\n#{backtrace}"
+      logger.debug "Backtrace: #{error.backtrace.join("\n\t")}"
     end
 
     def default_reply_markup(id)

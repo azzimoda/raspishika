@@ -67,7 +67,7 @@ module Raspishika
           department_url = link['href'].gsub('&amp;', '&')
           [department_name, "#{BASE_URL}#{department_url}"]
         end.to_h
-        deps.select! do |name, url|
+        deps.select! do |name, _url|
           name.downcase.then { it.include?('отделение') || it == 'заочное обучение' }
         end
         deps.tap { logger.debug it }
@@ -214,10 +214,10 @@ module Raspishika
       File.write(File.join(debug_dir, 'schedule.html'), html)
     end
 
-    def fetch_teachers_names(cache: true)
+    def fetch_teachers(cache: true)
       # TODO? Maybe I should fetch it like departments' links?
       teachers_url = 'https://mnokol.tyuiu.ru/site/index.php?option=com_content&view=article&id=1247&Itemid=304'
-      Cache.fetch :teachers_names, expires_in: cache ? 24 * 60 * 60 : 0, file: true do
+      Cache.fetch :teachers, expires_in: cache ? 24 * 60 * 60 : 0, file: true do
         logger.info "Fetching teachers' names..."
         options = use_browser do |browser|
           page = browser.new_page
@@ -237,7 +237,6 @@ module Raspishika
         ensure
           page.close
         end
-        logger.debug "Fetched options: #{options.inspect}"
 
         options.each_with_object({}) { |opt, teachers| teachers[opt['text']] = opt['value'] }
       end
@@ -348,7 +347,7 @@ module Raspishika
       end
       schedule
     end
-  
+
     private
 
     def parse_day_entry(day_cell, day_info, teacher: false)
