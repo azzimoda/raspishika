@@ -3,6 +3,7 @@
 require 'rufus-scheduler'
 require 'telegram/bot'
 
+require_relative 'config'
 require_relative 'logger'
 require_relative 'parser'
 require_relative 'dev_bot'
@@ -19,16 +20,9 @@ end
 
 module Raspishika
   class Bot
-    TOKEN_FILE = File.expand_path('config/token', ROOT_DIR)
-    TOKEN = OPTIONS[:token] || begin
-      File.read(TOKEN_FILE).chomp
-    rescue Errno::ENOENT => e
-      logger.fatal e.detailed_message
-      logger.fatal "Please provide a token in #{TOKEN_FILE} or use --token option."
-      exit
-    end
-    THEAD_POOL_SIZE = 20
-    MAX_RETRIES = 5
+    TOKEN = Config[:bot][:token]
+    THEAD_POOL_SIZE = Config[:bot][:thread_pool_size]
+    MAX_RETRIES = Config[:bot][:retiries]
 
     LABELS = {
       left: 'Оставшиеся пары',
@@ -47,7 +41,6 @@ module Raspishika
       pair_sending_on: 'Вкл. рассылку перед парами',
       pair_sending_off: 'Выкл. рассылку перед парами'
     }.freeze
-
     DEFAULT_KEYBOARD = [
       [LABELS[:left], LABELS[:tomorrow], LABELS[:week]],
       [LABELS[:quick_schedule], LABELS[:settings]]
@@ -57,7 +50,6 @@ module Raspishika
       resize_keyboard: true,
       one_time_keyboard: true
     }.to_json.freeze
-
     MY_COMMANDS = [
       { command: 'left', description: 'Оставшиеся пары' },
       { command: 'tomorrow', description: 'Расписание на завтра' },
@@ -134,11 +126,7 @@ module Raspishika
 
       schedule_pair_sending
 
-      if OPTIONS[:daily]
-        @sending_thread = Thread.new(self, &:daily_sending_loop)
-      else
-        logger.info 'Daily sending is disabled'
-      end
+      @sending_thread = Thread.new(self, &:daily_sending_loop)
     end
 
     def run_listener
@@ -212,7 +200,9 @@ module Raspishika
             logger.debug "Daily schedule sent to #{user.id} (#{user.full_name})"
             user.push_daily_sending_report(conf_time: it.daily_sending, process_time: Time.now - start_time, ok: true)
           rescue StandardError => e
-            user.push_daily_sending_report(conf_time: it.daily_sending, process_time: Time.now - start_time, ok: false)
+            user.push_daily_sending_report(
+              conf_time: it.daily_sending, process_time: Time.now - start_time, ok: false
+            )
             msg = "Error while sending daily schedule: #{e.detailed_message}"
             backtrace = e.backtrace.join("\n")
             report(msg, backtrace: backtrace, code: true)
@@ -255,7 +245,7 @@ module Raspishika
     end
 
     def debug_command(message, user)
-      return unless OPTIONS[:debug_commands]
+      return unless Cache[:bot][:debug_commands]
 
       debug_command_name = message.text.split(' ').last
       logger.info "Calling test #{debug_command_name}..."
@@ -503,7 +493,7 @@ module Raspishika
       user.push_command_usage command: command_name, ok: false
       bot.api.send_message(
         chat_id: message.chat.id,
-        text: 'Произошла ошибка. Попробуйте позже.',
+        text: 'Произошла ошибка, попробуйте позже.',
         reply_markup: default_reply_markup(user.id)
       )
     end

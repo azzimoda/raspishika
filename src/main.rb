@@ -5,17 +5,10 @@ require 'date'
 require 'slop'
 
 module Raspishika
-  ROOT_DIR = File.expand_path('..', __dir__).freeze
-
   begin
     OPTIONS = Slop.parse do |opts|
-      opts.string '-t', '--token', 'Main bot token'
-      opts.string '-T', '--dev-token', 'Dev bot token'
       opts.string '--log-level', 'Log level, defaults to debug', default: 'debug'
       opts.string '-N', '--notify', 'Send a notification message to all users.'
-      opts.bool '--daily', 'Enable daily sending, defaults to true', default: true
-      opts.bool '-D', '--dev-bot', 'Enable dev bot, defaults to true', default: true
-      opts.bool '-C', '--debug-commands', 'Enable debug commands', default: false
       opts.on '-h', '--help', 'This help message' do
         puts opts
         exit

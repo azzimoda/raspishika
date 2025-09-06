@@ -8,8 +8,6 @@ require_relative 'user'
 
 module Raspishika
   class DevBot
-    TOKEN_FILE = File.expand_path('config/token_dev', ROOT_DIR)
-    ADMIN_CHAT_ID_FILE = File.expand_path('../data/admin_chat_id', __dir__).freeze
     MY_COMMANDS = [
       { command: 'log', description: 'Get last log' },
       { command: 'general', description: 'Get general statistics' },
@@ -25,20 +23,11 @@ module Raspishika
       @main_bot = main_bot
 
       @logger = logger || ::Logger.new($stderr, level: ::Logger::ERROR)
-      @token = OPTIONS[:dev_token] || begin
-        File.read('config/token_dev').chomp
-      rescue Errno::ENOENT
-        logger.error 'No `config/token_dev` file found.'
-        logger.warn "The dev bot won't run."
-      end
-      @admin_chat_id = begin
-        File.read(ADMIN_CHAT_ID_FILE).chomp.to_i
-      rescue StandardError
-        nil
-      end
+      @token = Config[:dev_bot][:token]
+      @admin_chat_id = Config[:dev_bot][:admin_chat_id]
       logger.info('DevBot') { "Admin chat ID: #{@admin_chat_id.inspect}" }
 
-      @run = OPTIONS[:dev_bot]
+      @run = Config[:dev_bot][:enabled]
       @retries = 0
 
       @scheduler = Rufus::Scheduler.new
@@ -95,8 +84,6 @@ module Raspishika
         report "FATAL ERROR: #{msg}", log: 20
         logger.fatal('DevBot') { msg }
       end
-    ensure
-      File.write(ADMIN_CHAT_ID_FILE, @admin_chat_id.to_s) if @admin_chat_id
     end
 
     def report(text, photo: nil, backtrace: nil, log: nil, code: false)

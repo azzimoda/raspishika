@@ -14,10 +14,10 @@ require_relative 'image_generator'
 
 module Raspishika
   class ScheduleParser
-    TIMEOUT = 15
-    MAX_RETRIES = 3
-    LONG_CACHE_TIME = 30*24*60*60 # 1 month
-    BASE_URL = 'https://mnokol.tyuiu.ru'.freeze
+    TIMEOUT = Config[:parser][:timeout]
+    MAX_RETRIES = Config[:parser][:max_retries]
+    LONG_CACHE_TIME = 30 * 24 * 60 * 60 # 1 month
+    BASE_URL = 'https://mnokol.tyuiu.ru'
 
     def initialize(logger: Logger.new($stdout))
       @logger = logger
@@ -79,8 +79,8 @@ module Raspishika
     end
 
     def fetch_all_groups(departments_urls, unsafe_cache: false)
-      logger.info 'Fetching all groups...'
       Cache.fetch :groups, expires_in: LONG_CACHE_TIME, file: true, unsafe: unsafe_cache do
+        logger.info 'Fetching all groups...'
         departments_urls.each_with_object({}) do |(name, url), groups|
           groups[name] = fetch_groups url, name, unsafe_cache: true
         end

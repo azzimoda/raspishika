@@ -1,10 +1,12 @@
 # frozen_string_literal: true
 
+require_relative 'config'
+
 module Raspishika
   module ImageGenerator
-    IMAGE_WIDTH = 1400
-    IMAGE_HEIGHT = 1200
-    CACHE_DIR = File.expand_path('data/cache', ROOT_DIR).freeze
+    IMAGE_WIDTH = Config[:image_generator][:width]
+    IMAGE_HEIGHT = Config[:image_generator][:height]
+    CACHE_DIR = File.expand_path('../data/cache', __dir__).freeze
     FileUtils.mkdir_p CACHE_DIR
 
     @logger = nil

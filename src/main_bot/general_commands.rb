@@ -29,6 +29,7 @@ module Raspishika
       - /tomorrow — Расписание на завтра
       - /week — Расписание на неделю
       - /quick_schedule — Расписание другой группы
+      - /teacher_schedule — Расписание преподавателя
       - /configure_daily_sending — Настроить ежедневную рассылку
       - /daily_sending_off — Выключить ежедневную рассылку
       - /pair_sending_on — Включить рассылку перед парами
