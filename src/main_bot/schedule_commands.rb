@@ -32,7 +32,7 @@ module Raspishika
       make_photo = -> { Faraday::UploadIO.new(file_path, 'image/png') }
       reply_markup = default_reply_markup user.id
 
-      bot.api.send_photo(chat_id: user.id, photo: make_photo.call, reply_markup: reply_markup)
+      send_photo(chat_id: user.id, photo: make_photo.call, reply_markup: reply_markup)
       unless schedule
         bot.api.send_message(
           chat_id: user.id,
@@ -162,7 +162,7 @@ module Raspishika
       user.push_recent_teacher teacher_name
       user.state = User::State::DEFAULT
 
-      bot.api.send_photo(chat_id: user.id, photo: make_photo.call, reply_markup: reply_markup)
+      send_photo chat_id: user.id, photo: make_photo.call, reply_markup: reply_markup
       unless schedule
         bot.api.send_message(
           chat_id: user.id,

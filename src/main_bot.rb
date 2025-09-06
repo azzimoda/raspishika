@@ -365,7 +365,7 @@ module Raspishika
         user.statistics[:start] = Time.now
         msg =
           if message.chat.type == 'private'
-            "New private chat: [#{message.chat.id}] @#{message.chat.username} #{chat_title}"
+            "New private chat: [#{message.chat.id}] @#{message.from.username} #{message.from.full_name}"
           else
             "New group chat: [#{message.chat.id}] @#{message.chat.username} #{message.chat.title}"
           end
@@ -525,6 +525,22 @@ module Raspishika
       report("`#{msgs.join("\n")}`", backtrace: error.backtrace.join("\n"), log: 20)
       msgs.each { logger.error it }
       logger.debug "Backtrace: #{error.backtrace.join("\n\t")}"
+    end
+
+    def send_photo(*args, **kwargs)
+      photo_sending_retries = 0
+      begin
+        bot.api.send_photo(*args, **kwargs)
+      rescue Net::Timeout, Faraday::ConnectionFailed => e
+        logger.error "Failed to send photo to ##{user.id}: #{e.detailed_message}"
+        photo_sending_retries += 1
+        retry if photo_sending_retries < 3
+        bot.api.send_message(
+          chat_id: message.chat.id,
+          text: 'Произошла ошибка, попробуйте позже.',
+          reply_markup: default_reply_markup(user.id)
+        )
+      end
     end
 
     def default_reply_markup(id)
