@@ -1,0 +1,19 @@
+---
+bot:
+  debug_commands: false
+  max_retries: 10
+  thread_pool_size: 10
+  token: YOUR_BOT_TOKEN_HERE
+dev_bot:
+  admin_chat_id: YOUR_ADMIN_CHAT_ID_HERE
+  enabled: false
+  token: YOUR_DEV_BOT_TOKEN_HERE
+image_generator:
+  height: 1200
+  width: 1400
+parser:
+  browser:
+    headless: true
+  max_retries: 1
+  max_retries_after_update: 3
+  timeout: 15
