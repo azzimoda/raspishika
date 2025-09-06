@@ -45,15 +45,6 @@ module Raspishika
 
     def start_message(message, user)
       bot.api.send_message(chat_id: message.chat.id, text: START_MESSAGE, reply_markup: default_reply_markup(user.id))
-      return if user.statistics[:start]
-
-      user.statistics[:start] = Time.now
-      user.state = User::State::DEFAULT
-
-      msg =
-        "New user: #{message.chat.id} (@#{message.from.username}, #{message.from.first_name} #{message.from.last_name})"
-      report msg
-      logger.debug msg
     end
 
     def help_message(message, user)

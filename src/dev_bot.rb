@@ -99,10 +99,9 @@ module Raspishika
       File.write(ADMIN_CHAT_ID_FILE, @admin_chat_id.to_s) if @admin_chat_id
     end
 
-    def report(text, photo: nil, backtrace: nil, log: nil)
+    def report(text, photo: nil, backtrace: nil, log: nil, code: false)
       return unless @token && @admin_chat_id && @run
 
-      logger.info('DevBot') { "Sending report #{text.inspect}..." }
       bot.api.send_photo(chat_id: @admin_chat_id, photo: photo) if photo
       send_log(lines: log) if log
       if backtrace
@@ -112,10 +111,11 @@ module Raspishika
           parse_mode: 'Markdown'
         )
       end
-      bot.api.send_message(chat_id: @admin_chat_id, text: text, parse_mode: 'Markdown')
+      text = code ? "```\n#{text}\n```" : text
+      bot.api.send_message(chat_id: @admin_chat_id, text: text, parse_mode: code ? 'Markdown' : nil)
     rescue Telegram::Bot::Exceptions::ResponseError => e
       logger.error('DevBot') { "Telegram API error in `#report`: #{e.detailed_message}" }
-      logger.error('DevBot') { "BACKTRACE:\n#{e.backtrace.join("\n")}" }
+      logger.error('DevBot') { "BACKTRACE: #{e.backtrace.join("\n\t")}" }
     end
 
     private
@@ -165,7 +165,7 @@ module Raspishika
     rescue StandardError => e
       "Failed to get last log: #{e.detailed_message}".tap do
         logger.error it
-        report it
+        report it, code: true
       end
       ''
     end

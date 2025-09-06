@@ -144,19 +144,9 @@ module Raspishika
     def run_listener
       logger.info 'Starting bot listener...'
       bot.listen { |message| handle_message message }
-    rescue Telegram::Bot::Exceptions::ResponseError => e
-      if handle_telegram_api_error(e)
-        "Telegram API error: #{e.detailed_message}".tap do |msg|
-          report(msg, backtrace: e.backtrace.join("\n"), log: 20)
-          logger.error msg
-        end
-        logger.error e.backtrace.join("\n\t")
-        logger.error 'Retrying...'
-        retry
-      end
     rescue StandardError => e
       "Unhandled error in `bot.listen`: #{e.detailed_message}".tap do |msg|
-        report(msg, backtrace: e.backtrace.join("\n"), log: 20)
+        report(msg, backtrace: e.backtrace.join("\n"), log: 20, code: true)
         logger.error msg
       end
       logger.error "Backtrace: #{e.backtrace.join("\n\t")}"
@@ -166,24 +156,8 @@ module Raspishika
       @retries += 1
       retry if @retries < MAX_RETRIES
       'Reached maximum retries! Stopping bot...'.tap do |msg|
-        report "FATAL ERROR: #{msg}", log: 20
+        report "FATAL ERROR: #{msg}", log: 20, code: true
         logger.fatal msg
-      end
-    end
-
-    def handle_telegram_api_error(err)
-      case err.error_code
-      when 429 # Too Many Requests
-        retry_after = begin
-          err.response['retry-after'].to_i + 10
-        rescue StandardError
-          10
-        end
-        logger.warn "Rate limited! Sleeping for #{retry_after} seconds..."
-        sleep retry_after
-      else
-        logger.error "Unhandled Telegram API error: #{err.error_code} (#{err.detailed_message})"
-        sleep 10
       end
     end
 
@@ -235,16 +209,13 @@ module Raspishika
           Concurrent::Future.execute(executor: sending_thread_pool) do
             start_time = Time.now
             send_week_schedule(nil, user)
-            user.push_daily_sending_report(
-              conf_time: it.daily_sending, process_time: Time.now - start_time, ok: true
-            )
+            logger.debug "Daily schedule sent to #{user.id} (#{user.full_name})"
+            user.push_daily_sending_report(conf_time: it.daily_sending, process_time: Time.now - start_time, ok: true)
           rescue StandardError => e
-            user.push_daily_sending_report(
-              conf_time: it.daily_sending, process_time: Time.now - start_time, ok: false
-            )
+            user.push_daily_sending_report(conf_time: it.daily_sending, process_time: Time.now - start_time, ok: false)
             msg = "Error while sending daily schedule: #{e.detailed_message}"
             backtrace = e.backtrace.join("\n")
-            report(msg, backtrace: backtrace)
+            report(msg, backtrace: backtrace, code: true)
             logger.error msg
             logger.error backtrace
           end
@@ -392,14 +363,22 @@ module Raspishika
       return unless message.text
 
       short_text = message.text.size > 32 ? "#{message.text[0...32]}…" : message.text
-      logger.debug("[#{message.chat.id}] #{message.from.full_name} @#{message.from.username} ##{message.from.id} =>" \
-                   " #{short_text.inspect}")
+      if message.chat.type == 'private'
+        logger.debug("[#{message.chat.id}] @#{message.from.username} #{message.from.full_name} => #{short_text.inspect}")
+      else
+        logger.debug("[#{message.chat.id} @#{message.chat.username} #{message.chat.title}]" \
+                     " @#{message.from.username} #{message.from.full_name} => #{short_text.inspect}")
+      end
 
       user = User[message.chat.id]
-      if message.text.downcase != '/start' && user.statistics[:start].nil?
+      unless user.statistics[:start]
         user.statistics[:start] = Time.now
-        msg = "New user: #{message.chat.id}" \
-          " (@#{message.from.username}, #{message.from.first_name} #{message.from.last_name})"
+        msg =
+          if message.chat.type == 'private'
+            "New private chat: [#{message.chat.id}] @#{message.chat.username} #{chat_title}"
+          else
+            "New group chat: [#{message.chat.id}] @#{message.chat.username} #{message.chat.title}"
+          end
         report msg
         logger.debug msg
       end
@@ -513,9 +492,12 @@ module Raspishika
       if catch :fail do
         yield
         user.push_command_usage command: command_name, ok: true if ok_stats
+        false
       end
         user.push_command_usage command: command_name, ok: false
       end
+    rescue Telegram::Bot::Exceptions::ResponseError => e
+      handle_telegram_api_error e, message
     rescue StandardError => e
       log_error message, e
       user.push_command_usage command: command_name, ok: false
@@ -524,6 +506,27 @@ module Raspishika
         text: 'Произошла ошибка. Попробуйте позже.',
         reply_markup: default_reply_markup(user.id)
       )
+    end
+
+    def handle_telegram_api_error(err, message)
+      case err.error_code
+      when 403 # Forbidden: bot was blocked by the user / kicked from the group chat
+        msg =
+          "Bot was blocked in #{message.chat.type} ##{message.chat.id} @#{message.chat.username} #{message.chat.title}"
+        report msg
+        logger.warn msg
+      when 429 # Too Many Requests
+        retry_after = begin err.response['retry-after'].to_i + 10
+        rescue StandardError then 10
+        end
+        logger.warn "Rate limited! Sleeping for #{retry_after} seconds..."
+        sleep retry_after
+      else
+        report "Telegram API error: #{err.detailed_message}", backtrace: err.backtrace.join("\n"), log: 20, code: true
+        logger.error "Unhandled Telegram API error: #{err.detailed_message}"
+        logger.error err.backtrace.join("\n\t")
+        sleep 10
+      end
     end
 
     def log_error(message, error)
