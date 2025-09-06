@@ -8,7 +8,9 @@ module Raspishika
   begin
     OPTIONS = Slop.parse do |opts|
       opts.string '--log-level', 'Log level, defaults to debug', default: 'debug'
-      opts.string '-N', '--notify', 'Send a notification message to all users.'
+      opts.string '-N', '--notify', 'Send a notification message to all chats.'
+      opts.string '-P', '--notify-private', 'Send a notification message to all private chats.'
+
       opts.on '-h', '--help', 'This help message' do
         puts opts
         exit
@@ -28,6 +30,15 @@ if (message = Raspishika::OPTIONS[:notify])
   Raspishika::User.logger = Logger.new $stderr
   Raspishika::User.load
   Raspishika.notify message
+  exit
+end
+
+if (message = Raspishika::OPTIONS[:notify_private])
+  require_relative 'notification'
+
+  Raspishika::User.logger = Logger.new $stderr
+  Raspishika::User.load
+  Raspishika.notify message, private_only: true
   exit
 end
 
