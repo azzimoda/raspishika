@@ -14,7 +14,7 @@ module Raspishika
       { command: 'groups', description: 'Get groups statistics' },
       { command: 'departments', description: 'Get departments statistics' },
       { command: 'new_chats', description: 'Get new chats for last N=1 days' },
-      { command: 'commands', description: 'Get commands usage statistics for last 24 hours' },
+      { command: 'commands', description: 'Get commands usage statistics for last N=1 days' },
       { command: 'config', description: 'Get config statistics' },
       { command: 'chat', description: 'Get statistics for a chat with given chat ID of username' },
       { command: 'help', description: 'No help' }
@@ -323,6 +323,9 @@ module Raspishika
         else
           User.users.each_value.find do |user|
             @main_bot.bot.api.get_chat(chat_id: user.id)&.username&.downcase == id_or_username
+          rescue Telegram::Bot::Exceptions::ResponseError => e
+            logger.error('DevBot') { "[#{user.id}] Telegram API error: #{e.detailed_message}" }
+            false
           end
         end
 
