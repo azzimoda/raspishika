@@ -531,7 +531,7 @@ module Raspishika
       photo_sending_retries = 0
       begin
         bot.api.send_photo(*args, **kwargs)
-      rescue Net::Timeout, Faraday::ConnectionFailed => e
+      rescue Net::OpenTimeout, Faraday::ConnectionFailed => e
         logger.error "Failed to send photo to ##{user.id}: #{e.detailed_message}"
         photo_sending_retries += 1
         retry if photo_sending_retries < 3
