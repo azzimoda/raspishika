@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require 'concurrent'
 require 'rufus-scheduler'
 require 'telegram/bot'
 
@@ -7,12 +8,14 @@ require_relative 'config'
 require_relative 'logger'
 require_relative 'parser'
 require_relative 'dev_bot'
+
 require_relative 'main_bot/debug_commands'
 require_relative 'main_bot/general_commands'
 require_relative 'main_bot/config_commands'
 require_relative 'main_bot/schedule_commands'
+require_relative 'main_bot/sending'
 
-class Telegram::Bot::Types::User
+class Telegram::Bot::Types::User # rubocop:disable Style/ClassAndModuleChildren,Style/Documentation
   def full_name
     "#{first_name} #{last_name}".strip
   end
@@ -112,6 +115,20 @@ module Raspishika
       shutdown
     end
 
+    def users_save_loop
+      # TODO: Schedule it with cron.
+      while @run
+        User.save_all
+        600.times do
+          break unless @run
+
+          sleep 1
+        end
+      end
+    end
+
+    private
+
     def prepare_before_listen
       bot.api.set_my_commands(commands: MY_COMMANDS)
       @username = bot.api.get_me.username
@@ -165,85 +182,6 @@ module Raspishika
       @thread_pool.kill if @thread_pool.running?
     end
 
-    def send_message(*args, **kwargs)
-      @bot.api.send_message(*args, **kwargs)
-    end
-
-    def users_save_loop
-      while @run
-        User.save_all
-        600.times do
-          break unless @run
-
-          sleep 1
-        end
-      end
-    end
-
-    def daily_sending_loop
-      logger.info 'Starting daily sending loop...'
-      last_sending_time = Time.now - 2 * 60
-
-      sending_thread_pool = Concurrent::FixedThreadPool.new(20)
-
-      while @run
-        current_time = Time.now
-
-        users_to_send = User.users.values.select do
-          it.daily_sending && Time.parse(it.daily_sending).between?(last_sending_time, current_time)
-        end
-
-        futures = users_to_send.map do |user|
-          Concurrent::Future.execute(executor: sending_thread_pool) do
-            start_time = Time.now
-            send_week_schedule(nil, user)
-            logger.debug "Daily schedule sent to #{user.id} (#{user.full_name})"
-            user.push_daily_sending_report(conf_time: it.daily_sending, process_time: Time.now - start_time, ok: true)
-          rescue StandardError => e
-            user.push_daily_sending_report(
-              conf_time: it.daily_sending, process_time: Time.now - start_time, ok: false
-            )
-            msg = "Error while sending daily schedule: #{e.detailed_message}"
-            backtrace = e.backtrace.join("\n")
-            report(msg, backtrace: backtrace, code: true)
-            logger.error msg
-            logger.error backtrace
-          end
-        end
-        futures.each(&:wait)
-
-        if users_to_send.any?
-          logger.debug "Daily sending for #{users_to_send.size} users took #{Time.now - current_time} seconds"
-        end
-
-        last_sending_time = current_time
-
-        60.times do
-          break unless @run
-
-          sleep 1
-        end
-      end
-
-      sending_thread_pool.shutdown
-      sending_thread_pool.wait_for_termination 60
-      sending_thread_pool.kill if sending_thread_pool.running?
-    end
-
-    def schedule_pair_sending
-      logger.info 'Scheduling pair sending...'
-
-      ['8:00', '9:45', '11:30', '13:45', '15:30', '17:15', '19:00'].each do |time|
-        logger.debug "Scheduling sending for #{time}..."
-        time = Time.parse time
-
-        sending_time = time - 15 * 60
-        @scheduler.cron("#{sending_time.min} #{sending_time.hour} * * 1-6") do
-          send_pair_notification time
-        end
-      end
-    end
-
     def debug_command(message, user)
       return unless Cache[:bot][:debug_commands]
 
@@ -251,85 +189,15 @@ module Raspishika
       logger.info "Calling test #{debug_command_name}..."
       unless DebugCommands.respond_to? debug_command_name
         logger.warn "Test #{debug_command_name} not found"
-        bot.api.send_message(
+        send_message(
           chat_id: message.chat.id,
-          text:
-            "Тест `#{debug_command_name}` не найден.\n\n" \
-            "Доступные тесты: #{DebugCommands.methods.join(', ')}",
+          text: "Тест `#{debug_command_name}` не найден.\n\nДоступные тесты: #{DebugCommands.methods.join(', ')}",
           reply_markup: default_reply_markup(user.id)
         )
         return
       end
 
       DebugCommands.send(debug_command_name, bot: self, user: user, message: message)
-    end
-
-    private
-
-    def send_pair_notification(time, user: nil)
-      logger.info "Sending pair notification for #{time}..."
-
-      sending_thread_pool = Concurrent::FixedThreadPool.new 20
-
-      groups =
-        if user
-          logger.debug "Sending pair notification for #{time} to #{user.id} with group #{user.group_info}..."
-          { [user.department_name, user.group_name] => [user] }
-        else
-          User.users.values.select(&:pair_sending).group_by { [it.department_name, it.group_name] }
-        end
-      logger.debug "Sending pair notification to #{groups.size} groups..."
-
-      futures = groups.map do |(_dname, gname), users|
-        Concurrent::Future.execute(executor: sending_thread_pool) do
-          send_pair_notification_for_group(users, time)
-        rescue StandardError => e
-          logger.error "Failed to send pair notification for #{gname}: #{e.detailed_message}"
-          logger.error e.backtrace.join("\n\t")
-        end
-      end
-      futures.each(&:wait)
-
-      sending_thread_pool.shutdown
-      sending_thread_pool.wait_for_termination 60
-      sending_thread_pool.kill if sending_thread_pool.running?
-    end
-
-    def send_pair_notification_for_group(users, time)
-      if users.empty?
-        logger.warn 'Users array is empty'
-        return
-      end
-
-      logger.info "Sending pair notification to #{users.size} users of group #{users.first.group_name}"
-
-      raw_schedule = @parser.fetch_schedule users.first.group_info
-      if raw_schedule.nil?
-        logger.error "Failed to fetch schedule for #{users.first.group_info}"
-        return
-      end
-
-      pair = Schedule.from_raw(raw_schedule).now(time: time)&.pair(0)
-      return unless pair
-
-      text =
-        case pair.data.dig(0, :pairs, 0, :type)
-        when :subject, :exam, :consultation
-          format("Следующая пара в кабинете %<classroom>s:\n%<discipline>s\n%<teacher>s",
-                 pair.data.dig(0, :pairs, 0, :content))
-        else
-          logger.debug 'No pairs left for the group'
-          return
-        end
-
-      logger.debug "Sending pair notification to #{users.size} users of group #{users.first.group_name}..."
-      users.map(&:id).each do |chat_id|
-        bot.api.send_message(chat_id: chat_id, text: text)
-      rescue StandardError => e
-        logger.error "Failed to send pair notification of group #{users.first.group_name} to #{chat_id}:" \
-                     "#{e.detailed_message}"
-        logger.error e.backtrace.join("\n\t")
-      end
     end
 
     def report(*args, **kwargs)
@@ -422,7 +290,7 @@ module Raspishika
         end
       when ->(_) { user.selecting_department? }
         handle_command(message, user, user.selecting_quick? ? '/quick_schedule' : '/set_group', ok_stats: false) do
-          bot.api.send_message(chat_id: message.chat.id, text: 'Неверное название отделения, попробуй ещё раз')
+          send_message(chat_id: message.chat.id, text: 'Неверное название отделения, попробуй ещё раз')
         end
 
       when ->(t) { user.selecting_group? && user.groups.keys.map(&:downcase).include?(t) }
@@ -431,7 +299,7 @@ module Raspishika
         end
       when ->(_) { user.selecting_group? }
         handle_command(message, user, user.selecting_quick? ? '/quick_schedule' : '/set_group') do
-          bot.api.send_message(chat_id: message.chat.id, text: 'Неверное название группы, попробуй ещё раз')
+          send_message(chat_id: message.chat.id, text: 'Неверное название группы, попробуй ещё раз')
         end
 
       when ->(t) { user.default? && t == LABELS[:quick_schedule].downcase }
@@ -471,7 +339,7 @@ module Raspishika
           handle_command(message, user, '/set_daily_sending') { set_daily_sending message, user }
         else
           handle_command(message, user, '/configure_daily_sending', ok_stats: false) do
-            bot.api.send_message(chat_id: message.chat.id, text: 'Неправильный формат времени, попробуйте ещё раз')
+            send_message(chat_id: message.chat.id, text: 'Неправильный формат времени, попробуйте ещё раз')
           end
         end
       when %r{^/debug\s+\w+$} then debug_command message, user
@@ -491,7 +359,7 @@ module Raspishika
     rescue StandardError => e
       log_error message, e
       user.push_command_usage command: command_name, ok: false
-      bot.api.send_message(
+      send_message(
         chat_id: message.chat.id,
         text: 'Произошла ошибка, попробуйте позже.',
         reply_markup: default_reply_markup(user.id)
@@ -535,12 +403,16 @@ module Raspishika
         logger.error "Failed to send photo to ##{user.id}: #{e.detailed_message}"
         photo_sending_retries += 1
         retry if photo_sending_retries < 3
-        bot.api.send_message(
+        send_message(
           chat_id: message.chat.id,
           text: 'Произошла ошибка, попробуйте позже.',
           reply_markup: default_reply_markup(user.id)
         )
       end
+    end
+
+    def send_message(*args, **kwargs)
+      bot.api.send_message(*args, **kwargs)
     end
 
     def default_reply_markup(id)
