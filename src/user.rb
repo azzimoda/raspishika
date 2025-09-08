@@ -55,7 +55,7 @@ module Raspishika
       end
 
       def load
-        logger&.info 'Restoring users...'
+        logger&.info 'Loading chats...'
         data = JSON.parse(File.read(BACKUP_FILE), symbolize_names: true).transform_keys(&:to_s)
         @users = data.map { |id, data| [id.to_s, new(id, **data)] }.to_h
         @users.each_value do |user|
@@ -64,7 +64,7 @@ module Raspishika
           user.statistics[:daily_sendings]&.each { it[:timestamp] = Time.parse it[:timestamp] }
           user.statistics[:pair_sendings]&.each { it[:timestamp] = Time.parse it[:timestamp] }
         end
-        logger&.info "Restored #{@users.size} users"
+        logger&.info "Loaded #{@users.size} chats"
       rescue Errno::ENOENT, JSON::ParserError => e
         logger&.error "Failed to load users: #{e.detailed_message}"
         @users = {}

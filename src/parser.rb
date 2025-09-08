@@ -27,30 +27,31 @@ module Raspishika
       @mutex = Mutex.new
     end
     attr_accessor :logger, :ready
-  
+
     def ready?
       @ready
     end
-  
+
+    # TODO: Add browser pool.
     def initialize_browser_thread
-      logger&.info "Initializing browser thread..."
+      logger&.info 'Initializing browser thread...'
       @thread = Thread.new do
         Playwright.create(playwright_cli_executable_path: 'npx playwright') do |playwright|
           @browser = playwright.chromium.launch(headless: true, timeout: TIMEOUT * 1000)
-          logger&.info "Browser is ready"
+          logger&.info 'Browser is ready'
           @ready = true
           sleep 1 while @browser.connected?
         end
-        logger&.info "Browser thread is stopped."
+        logger&.info 'Browser thread is stopped.'
       end
     end
-  
+
     def stop_browser_thread
-      logger&.info "Stopping browser thread..."
+      logger&.info 'Stopping browser thread...'
       @browser&.close
       @thread&.join
     end
-  
+
     def use_browser(&block)
       @mutex.synchronize { block.call @browser }
     end
@@ -268,7 +269,7 @@ module Raspishika
         'Referer' => 'https://coworking.tyuiu.ru/shs/all_t/',
         'Accept-Language' => "#{%w[ru-RU,ru en-US,en].sample};q=0.#{rand(5..9)}"
       }.tap do |a|
-        # NOTE: This may be not necessary.
+        # TODO? This may be not necessary, maybe delete it.
         { 'Sec-Fetch-Dest' => 'document', 'Sec-Fetch-Mode' => 'navigate', 'Connection' => 'keep-alive' }
           .each { |k, v| a[k] = v if rand(2).zero? }
       end
