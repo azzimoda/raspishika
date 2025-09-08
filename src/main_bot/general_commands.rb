@@ -64,6 +64,9 @@ module Raspishika
           'Спасибо за использование!',
         reply_markup: { remove_keyboard: true }.to_json
       )
+
+      chat_title = message.chat.type == 'private' ? message.from.full_name : message.chat.title
+      report "Chat #{chat_title} @#{message.chat.username} ##{message.chat.id} stopped the bot :("
     end
   end
 end
