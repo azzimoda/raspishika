@@ -228,7 +228,7 @@ module Raspishika
                      " @#{message.from.username} #{message.from.full_name} => #{short_text.inspect}")
       end
 
-      user = User[message.chat.id]
+      user = User[message.chat.id, username: message.chat.username]
       unless user.statistics[:start]
         user.statistics[:start] = Time.now
         msg =

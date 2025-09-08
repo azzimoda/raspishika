@@ -27,8 +27,8 @@ module Raspishika
     class << self
       attr_accessor :logger, :users
 
-      def [](id)
-        @mutex.synchronize { @users[id.to_s] ||= new id.to_s }
+      def [](id, username: nil)
+        @mutex.synchronize { (@users[id.to_s] ||= new id.to_s, username: username).tap { it.username ||= username } }
       end
 
       def delete(user)
@@ -72,10 +72,12 @@ module Raspishika
     end
 
     def initialize(
-      id, department_name: nil, group_name: nil, daily_sending: nil, pair_sending: nil, statistics: nil,
+      id, username: nil, department_name: nil, group_name: nil, daily_sending: nil, pair_sending: nil, statistics: nil,
       recent_groups: [], recent_teachers: [], **
     )
       @id = id
+      @username = username
+
       @state = :default
 
       @department_name = department_name
@@ -97,7 +99,7 @@ module Raspishika
       @recent_groups = recent_groups
       @recent_teachers = recent_teachers
     end
-    attr_accessor :id, :state,
+    attr_accessor :id, :username, :state,
                   :group_name, :department_name,
                   :daily_sending, :pair_sending,
                   :departments, :groups, :department_name_temp, :department_url,
@@ -153,7 +155,7 @@ module Raspishika
     end
 
     def to_h
-      { department_name: department_name, group_name: group_name, daily_sending: daily_sending,
+      { username: username, department_name: department_name, group_name: group_name, daily_sending: daily_sending,
         pair_sending: pair_sending, statistics: statistics, recent_teachers: recent_teachers,
         recent_groups: recent_groups }
     end
