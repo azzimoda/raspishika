@@ -13,9 +13,10 @@ module Raspishika
       { command: 'general', description: 'Get general statistics' },
       { command: 'groups', description: 'Get groups statistics' },
       { command: 'departments', description: 'Get departments statistics' },
-      { command: 'new_chats', description: 'Get new users for last N=1 hours' },
+      { command: 'new_chats', description: 'Get new chats for last N=1 days' },
       { command: 'commands', description: 'Get commands usage statistics for last 24 hours' },
-      { command: 'configuration', description: 'Get configuration statistics' },
+      { command: 'config', description: 'Get config statistics' },
+      { command: 'chat', description: 'Get statistics for a chat with given chat ID of username' },
       { command: 'help', description: 'No help' }
     ].freeze
 
@@ -117,12 +118,12 @@ module Raspishika
       when '/departments' then send_departments
       when %r{/groups\s+(\d+)} then send_groups limit: Regexp.last_match(1).to_i
       when '/groups' then send_groups
-      when '/configuration' then send_configuration_statistics
+      when '/config' then send_config_statistics
       when '/commands' then send_commands_statistics
       # TODO: /commands DAYS
       when '/new_chats' then send_new_chats
       when %r{/new_chats\s+(\d+)} then send_new_chats days: Regexp.last_match(1).to_i
-      when %r{/notify_all\s+(.+)} then send_notification_to_all_users Regexp.last_match(1)
+      when %r{/chat\s+(.+)} then send_chat_statistics Regexp.last_match(1)
       else bot.api.send_message(chat_id: admin_chat_id, text: 'Huh?')
       end
     rescue StandardError => e
@@ -274,7 +275,7 @@ module Raspishika
       bot.api.send_message(chat_id: @admin_chat_id, text: text, parse_mode: 'Markdown')
     end
 
-    def send_configuration_statistics
+    def send_config_statistics
       statistics = collect_statistics
 
       daily_sending = statistics[:daily_sending_configuration].transform_keys(&:to_s).sort_by(&:first).map do |t, users|
@@ -293,11 +294,13 @@ module Raspishika
       end
 
       text = <<~MARKDOWN
-        Pair sending configurations:
+        PAIRS
 
         #{pair_sending.join("\n")}
 
-        Daily sending configurations:
+        DAILY
+
+        Total enabled: #{statistics[:daily_sending_configuration].select { |k, _| k }.each_value.sum(&:size)}
 
         #{daily_sending.join("\n")}
       MARKDOWN
@@ -310,6 +313,32 @@ module Raspishika
       text = statistics[:command_usages].map do |k, v|
         "`#{k.to_s.ljust(24)} => #{v.size.to_s.rjust(5)}`"
       end.join("\n")
+      bot.api.send_message(chat_id: admin_chat_id, text: text, parse_mode: 'Markdown')
+    end
+
+    def send_chat_statistics(id_or_username)
+      chat_data =
+        if id_or_username =~ /-?\d+/
+          User.users.each_value.find { |user| user.id.to_s == id_or_username }
+        else
+          User.users.each_value.find do |user|
+            @main_bot.bot.api.get_chat(chat_id: user.id)&.username&.downcase == id_or_username
+          end
+        end
+
+      if chat_data.nil?
+        bot.api.send_message(chat_id: admin_chat_id, text: "Chat not found: #{id_or_username}")
+        return
+      end
+
+      chat = @main_bot.bot.api.get_chat chat_id: chat_data.id
+      text = <<~MARKDOWN
+        *Chat:* #{chat.first_name} #{chat.last_name} #{chat.title} @#{chat.username} ##{chat.id}
+        *Department:* #{chat_data.department_name}
+        *Group:* #{chat_data.group_name}
+        *Daily sending:* #{chat_data.daily_sending}
+        *Pair sending:* #{chat_data.pair_sending}
+      MARKDOWN
       bot.api.send_message(chat_id: admin_chat_id, text: text, parse_mode: 'Markdown')
     end
 
@@ -392,17 +421,6 @@ module Raspishika
         else :other
         end
       end
-    end
-
-    def send_notification_to_all_users(text)
-      count = 0
-      User.users.each_value do |user|
-        @main_bot.send_message chat_id: user.id, text: text, parse_mode: 'Markdown'
-        count += 1
-      rescue Telegram::Bot::Exceptions::ResponseError => e
-        logger.error('DevBot') { "Failed to send message to ##{user.id}: #{e.detailed_message}" }
-      end
-      report "Successfully sent notification to #{count} chats."
     end
 
     def self.just_group(group)
