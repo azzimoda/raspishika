@@ -22,7 +22,7 @@ module Raspishika
   class Bot
     TOKEN = Config[:bot][:token]
     THEAD_POOL_SIZE = Config[:bot][:thread_pool_size]
-    MAX_RETRIES = Config[:bot][:retiries]
+    MAX_RETRIES = Config[:bot][:max_retiries]
 
     LABELS = {
       left: 'Оставшиеся пары',
