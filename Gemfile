@@ -16,3 +16,7 @@ gem "slop", "~> 4.10"
 gem "user-agent-randomizer", "~> 0.2.0"
 
 gem "fuzzy_match", "~> 2.1"
+
+gem "sqlite3", "~> 2.7"
+
+gem "activerecord", "~> 8.0"
