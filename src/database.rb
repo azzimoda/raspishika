@@ -12,7 +12,7 @@ module Raspishika
 
   ActiveRecord::Schema.define do
     create_table :chats, if_not_exists: true do |t|
-      t.string :tg_chat_id, null: false
+      t.string :tg_id, null: false
       t.string :username
 
       t.string :department
@@ -22,7 +22,7 @@ module Raspishika
 
       t.timestamps
     end
-    add_index :chats, :tg_chat_id, if_not_exists: true, unique: true
+    add_index :chats, :tg_id, if_not_exists: true, unique: true
     add_index :chats, :username, if_not_exists: true, unique: true
 
     create_table :command_usages, if_not_exists: true do |t|

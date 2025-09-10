@@ -24,7 +24,7 @@ module Raspishika
     private
 
     def migrate_chat(chat_id, chat_data)
-      chat = Chat.find_or_initialize_by(tg_chat_id: chat_id)
+      chat = Chat.find_or_initialize_by(tg_id: chat_id)
 
       chat.assign_attributes(
         username: chat_data.username,
