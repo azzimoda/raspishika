@@ -48,12 +48,16 @@ module Raspishika
       actual_entry? entry, expires_in: expires_in, allow_nil: allow_nil
     end
 
-    def self.actual_entry?(entry, expires_in:, allow_nil:)
+    def self.actual_entry?(entry, expires_in:, allow_nil: false)
       entry && (allow_nil || entry[:value]) && (expires_in.nil? || Time.now - entry[:timestamp] < expires_in)
     end
 
-    def self.get(key, file: false)
-      get_entry(key, file: file)&.dig(:value)
+    # If `expires_in` is `nil`, the cache will not expire. If `expires_in` is 0, the will be always expired.
+    def self.get(key, file: false, expires_in: nil)
+      entry = get_entry(key, file: file)
+      return unless actual_entry? entry, expires_in: expires_in
+
+      entry[:value]
     end
 
     def self.get_entry(key, file: false)
