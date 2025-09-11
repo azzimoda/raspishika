@@ -1,9 +1,19 @@
 # frozen_string_literal: true
 
 require 'active_record'
+require 'fileutils'
 
 module Raspishika
   DB_FILE = File.expand_path '../data/db.sqlite3', __dir__
+  BACKUP_DIR = File.expand_path '../data/backups', __dir__
+
+  def self.backup_database
+    FileUtils.mkdir_p BACKUP_DIR
+    timestamp = Time.now.strftime '%Y-%m-%d_%H-%M-%S'
+    backup_file = File.join BACKUP_DIR, "db_backup_#{timestamp}.sqlite3"
+    FileUtils.cp DB_FILE, backup_file
+    puts "Database backup saved to #{backup_file}" # TODO: Use logger instead of `puts`.
+  end
 
   ActiveRecord::Base.establish_connection(
     adapter: 'sqlite3',
@@ -44,3 +54,5 @@ module Raspishika
     end
   end
 end
+
+Dir[File.expand_path('./models/*.rb', __dir__)].each { require it }
