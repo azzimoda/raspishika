@@ -54,9 +54,9 @@ module Raspishika
         raise
       end
 
-      def load
+      def load(file = BACKUP_FILE)
         logger&.info 'Loading chats...'
-        data = JSON.parse(File.read(BACKUP_FILE), symbolize_names: true).transform_keys(&:to_s)
+        data = JSON.parse(File.read(file), symbolize_names: true).transform_keys(&:to_s)
         @users = data.map { |id, data| [id.to_s, new(id, **data)] }.to_h
         @users.each_value do |user|
           user.statistics[:start] = Time.parse user.statistics[:start] if user.statistics[:start]
