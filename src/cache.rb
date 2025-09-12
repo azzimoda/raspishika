@@ -7,7 +7,9 @@ module Raspishika
     DEFAULT_CACHE_EXPIRATION = 15 * 60 # 15 minutes
     @logger = nil
     @data = {}
-    @store = PStore.new File.expand_path '../data/cache.pstore', __dir__
+    file = File.expand_path '../data/cache.pstore', __dir__
+    FileUtils.mkdir_p File.dirname file
+    @store = PStore.new file
     @cache_mutex = Mutex.new
     @store_mutex = Mutex.new
 
