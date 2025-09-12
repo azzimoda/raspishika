@@ -26,8 +26,6 @@ require_relative 'main_bot'
 if (message = Raspishika::OPTIONS[:notify])
   require_relative 'notification'
 
-  Raspishika::User.logger = Logger.new $stderr
-  Raspishika::User.load
   Raspishika.notify message
   exit
 end
@@ -35,8 +33,6 @@ end
 if (message = Raspishika::OPTIONS[:notify_private])
   require_relative 'notification'
 
-  Raspishika::User.logger = Logger.new $stderr
-  Raspishika::User.load
   Raspishika.notify message, private_only: true
   exit
 end

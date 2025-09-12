@@ -14,15 +14,15 @@ module Raspishika
       while @run
         current_time = Time.now
 
-        users_to_send = User.users.each_value.select do |chat|
-          chat.daily_sending && Time.parse(chat.daily_sending).between?(last_sending_time, current_time)
+        chats = Chat.where.not(daily_sending_time: nil).select do |chat|
+          Time.parse(chat.daily_sending_time).between? last_sending_time, current_time
         end
 
-        futures = users_to_send.map do |chat|
+        futures = chats.map do |chat|
           Concurrent::Future.execute(executor: sending_thread_pool) do
             start_time = Time.now
-            send_week_schedule nil, chat
-            logger.debug "Daily schedule sent to #{chat.id} (#{bot.api.get_chat(chat_id: chat.id).username})"
+            send_week_schedule nil, chat, Session[chat]
+            logger.debug "Daily schedule sent to @#{chat.username} ##{chat.tg_id}"
             chat.push_daily_sending_report conf_time: it.daily_sending, process_time: Time.now - start_time, ok: true
           rescue StandardError => e
             chat.push_daily_sending_report conf_time: it.daily_sending, process_time: Time.now - start_time, ok: false
@@ -34,9 +34,7 @@ module Raspishika
         end
         futures.each(&:wait)
 
-        if users_to_send.any?
-          logger.debug "Daily sending for #{users_to_send.size} users took #{Time.now - current_time} seconds"
-        end
+        logger.debug "Daily sending for #{chats.count} users took #{Time.now - current_time} seconds" if chats.any?
 
         last_sending_time = current_time
 
@@ -66,23 +64,23 @@ module Raspishika
       end
     end
 
-    def send_pair_notification(time, user: nil)
+    def send_pair_notification(time, chat: nil)
       logger.info "Sending pair notification for #{time}..."
 
       sending_thread_pool = Concurrent::FixedThreadPool.new 20
 
       groups =
-        if user
-          logger.debug "Sending pair notification for #{time} to #{user.id} with group #{user.group_info}..."
-          { [user.department_name, user.group_name] => [user] }
+        if chat
+          logger.debug "Sending pair notification for #{time} to #{chat.tg_id} with group #{chat.group_info}..."
+          { [chat.department, chat.group] => [chat] }
         else
-          User.users.values.select(&:pair_sending).group_by { [it.department_name, it.group_name] }
+          Chat.where(pair_sending: true).group_by { [it.department, it.group] }
         end
       logger.debug "Sending pair notification to #{groups.size} groups..."
 
-      futures = groups.map do |(_dname, gname), users|
+      futures = groups.map do |(_dname, gname), chats|
         Concurrent::Future.execute(executor: sending_thread_pool) do
-          send_pair_notification_for_group(users, time)
+          send_pair_notification_for_group(chats, time)
         rescue StandardError => e
           logger.error "Failed to send pair notification for #{gname}: #{e.detailed_message}"
           logger.error e.backtrace.join("\n\t")
@@ -95,17 +93,17 @@ module Raspishika
       sending_thread_pool.kill if sending_thread_pool.running?
     end
 
-    def send_pair_notification_for_group(users, time)
-      if users.empty?
-        logger.warn 'Users array is empty'
+    def send_pair_notification_for_group(chats, time)
+      if chats.empty?
+        logger.warn 'Chats array is empty'
         return
       end
 
-      logger.info "Sending pair notification to #{users.size} users of group #{users.first.group_name}"
+      logger.info "Sending pair notification to #{chats.size} chats of group #{chats.first.group}..."
 
-      raw_schedule = @parser.fetch_schedule users.first.group_info
+      raw_schedule = @parser.fetch_schedule chats.first.group_info
       if raw_schedule.nil?
-        logger.error "Failed to fetch schedule for #{users.first.group_info}"
+        logger.error "Failed to fetch schedule for #{chats.first.group_info}"
         return
       end
 
@@ -122,11 +120,11 @@ module Raspishika
           return
         end
 
-      logger.debug "Sending pair notification to #{users.size} users of group #{users.first.group_name}..."
-      users.map(&:id).each do |chat_id|
+      logger.debug "Sending pair notification to #{chats.size} chats of group #{chats.first.group}..."
+      chats.map(&:tg_id).each do |chat_id|
         bot.api.send_message(chat_id: chat_id, text: text)
       rescue StandardError => e
-        logger.error "Failed to send pair notification of group #{users.first.group_name} to #{chat_id}:" \
+        logger.error "Failed to send pair notification of group #{chats.first.group} to #{chat_id}:" \
                      "#{e.detailed_message}"
         logger.error e.backtrace.join("\n\t")
       end

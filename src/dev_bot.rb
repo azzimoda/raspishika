@@ -4,7 +4,7 @@ require 'json'
 require 'rufus-scheduler'
 require 'telegram/bot'
 
-require_relative 'user'
+require_relative 'database'
 
 module Raspishika
   class DevBot
@@ -169,7 +169,7 @@ module Raspishika
       text = <<~MARKDOWN
         Total departments: #{departments.size}
 
-        #{departments.map { |k, v| format('`%s (%2d G, %2d PC, %2d GC)`', k, *v) }.join("\n")}
+        #{departments.map { |k, v| format('`%s => %2d G, %2d PC, %2d GC`', k, *v) }.join("\n")}
       MARKDOWN
       bot.api.send_message(chat_id: @admin_chat_id, text: text, parse_mode: 'Markdown')
     end
@@ -193,22 +193,22 @@ module Raspishika
       statistics = collect_statistics
 
       total_chats = statistics[:private_chats].size + statistics[:group_chats].size
-      top_groups = statistics[:groups].transform_values { [it.count(&:private?), it.count(&:supergroup?)] }
+      top_groups = statistics[:groups].transform_values { [it.count(&:private?), it.count { !it.private? }] }
                                       .sort_by(&:last).reverse.first(5)
-      top_groups.map! { |k, v| format('`%s (%2d PC, %2d GC)`', DevBot.just_group(k), *v) }
+      top_groups.map! { |k, v| format('`%s => %2d PC, %2d GC`', DevBot.just_group(k), *v) }
 
       day_commands =
-        statistics[:command_usages].transform_values { |v| v.select { Time.now - it[:timestamp] <= 24 * 60 * 60 } }
-      active_chats = day_commands.values.flatten.map { it[:user] }.uniq.size
-      total_ok_commands = day_commands.values.sum { it.count { it[:ok] } }
-      total_fail_commands = day_commands.values.sum { it.count { !it[:ok] } }
+        statistics[:command_usages].transform_values { |v| v.select { Time.now - it.created_at <= 24 * 60 * 60 } }
+      active_chats = day_commands.values.flatten.map { it[:chat] }.uniq.size
+      total_ok_commands = day_commands.values.sum { it.count { it.successful } }
+      total_fail_commands = day_commands.values.sum { it.count { !it.successful } }
       schedule_commands = day_commands.slice(:week, :tomorrow, :left).values.sum(&:size)
 
       week_commands =
-        statistics[:command_usages].transform_values { |v| v.select { Time.now - it[:timestamp] <= 7 * 24 * 60 * 60 } }
-      active_chats_week = week_commands.values.flatten.map { it[:user] }.uniq.size
-      total_ok_commands_week = week_commands.values.sum { it.count { it[:ok] } }
-      total_fail_commands_week = week_commands.values.sum { it.count { !it[:ok] } }
+        statistics[:command_usages].transform_values { |v| v.select { Time.now - it.created_at <= 7 * 24 * 60 * 60 } }
+      active_chats_week = week_commands.values.flatten.map { it[:chat] }.uniq.size
+      total_ok_commands_week = week_commands.values.sum { it.count { it.successful } }
+      total_fail_commands_week = week_commands.values.sum { it.count { !it.successful } }
       schedule_commands_week = week_commands.slice(:week, :tomorrow, :left).values.sum(&:size)
 
       bot.api.send_message(chat_id: admin_chat_id, parse_mode: 'Markdown', text: <<~MARKDOWN)
@@ -246,19 +246,12 @@ module Raspishika
     end
 
     def send_new_chats(days: 1)
-      chats =
-        if days.zero?
-          User.users.values
-        else
-          User.users.values.select do |user|
-            user.statistics[:start] && user.statistics[:start] >= Time.now - days * 24 * 60 * 60
-          end
-        end
+      chats = days.zero? ? Chat.all : Chat.where(created_at: (Time.now - days * 24 * 60 * 60)..Time.now)
 
-      chats_by_year = chats.group_by { it.group_name&.match(/.+-(\d\d)-\(\d+\)-\d+/)&.[](1) }.map do |k, v|
-        "`#{k} => #{v.size.to_s.rjust(2)}, #{v.group_by(&:group_name).size.to_s.rjust(2)} groups`"
+      chats_by_year = chats.group_by { it.group&.match(/.+-(\d\d)-\(\d+\)-\d+/)&.[](1) }.map do |k, v|
+        "`#{k} => #{v.size.to_s.rjust(2)}, #{v.group_by(&:group).size.to_s.rjust(2)} groups`"
       end
-      chats_by_group = chats.group_by(&:group_name).sort_by { |_, v| v.size }.reverse.map do |k, v|
+      chats_by_group = chats.group_by(&:group).sort_by { |_, v| v.size }.reverse.map do |k, v|
         "`#{DevBot.just_group(k)} => #{v.size.to_s.rjust(2)}`"
       end
 
@@ -278,19 +271,14 @@ module Raspishika
     def send_config_statistics
       statistics = collect_statistics
 
-      daily_sending = statistics[:daily_sending_configuration].transform_keys(&:to_s).sort_by(&:first).map do |t, users|
-        groups = users.map(&:group_name).uniq.size
-        "`#{(t.to_s || 'off').ljust(5)} => #{groups.to_s.rjust(3)} groups, #{users.size.to_s.rjust(3)} chats`"
+      daily_sending = statistics[:daily_sending_configuration].transform_keys(&:to_s).sort_by(&:first).map do |t, chats|
+        groups = chats.map(&:group).uniq.size
+        "`#{(t.to_s || 'off').ljust(5)} => #{groups.to_s.rjust(3)} groups, #{chats.size.to_s.rjust(3)} chats`"
       end
-      pair_sending = statistics[:pair_sending_configuration].map do |state, users|
-        state =
-          if state.nil?
-            'nil'
-          else
-            state ? 'on' : 'off'
-          end
-        groups = users.map(&:group_name).uniq.size
-        "`#{state.to_s.ljust(3)} => #{groups.to_s.rjust(3)} groups, #{users.size.to_s.rjust(3)} chats`"
+      pair_sending = statistics[:pair_sending_configuration].map do |state, chats|
+        state = state.nil? && 'nil' || state && 'on' || 'off'
+        groups = chats.map(&:group).uniq.size
+        "`#{state.to_s.ljust(3)} => #{groups.to_s.rjust(3)} groups, #{chats.size.to_s.rjust(3)} chats`"
       end
 
       text = <<~MARKDOWN
@@ -319,14 +307,9 @@ module Raspishika
     def send_chat_statistics(id_or_username)
       chat_data =
         if id_or_username =~ /-?\d+/
-          User.users.each_value.find { |user| user.id.to_s == id_or_username }
+          Chat.where(tg_id: id_or_username).first
         else
-          User.users.each_value.find do |user|
-            user.username&.downcase == id_or_username
-          rescue Telegram::Bot::Exceptions::ResponseError => e
-            logger.error('DevBot') { "[#{user.id}] Telegram API error: #{e.detailed_message}" }
-            false
-          end
+          Chat.where('LOWER(username) = ?', id_or_username).first
         end
 
       if chat_data.nil?
@@ -334,12 +317,12 @@ module Raspishika
         return
       end
 
-      chat = @main_bot.bot.api.get_chat chat_id: chat_data.id
+      chat = @main_bot.bot.api.get_chat chat_id: chat_data.tg_id
       text = <<~MARKDOWN
         *Chat:* #{chat.first_name} #{chat.last_name} #{chat.title} @#{chat.username} ##{chat.id}
-        *Department:* #{chat_data.department_name}
-        *Group:* #{chat_data.group_name}
-        *Daily sending:* #{chat_data.daily_sending}
+        *Department:* #{chat_data.department}
+        *Group:* #{chat_data.group}
+        *Daily sending:* #{chat_data.daily_sending_time}
         *Pair sending:* #{chat_data.pair_sending}
       MARKDOWN
       bot.api.send_message(chat_id: admin_chat_id, text: text, parse_mode: 'Markdown')
@@ -356,56 +339,38 @@ module Raspishika
         departments: {}, # department => {group => chats}
         new_chats: [], # for last 24 hours
         daily_sending_configuration: {}, # time => chats
-        pair_sending_configuration: {}, # state(nil,false,true) => chats
-        command_usages: {
-          help: [],
-          week: [],
-          tomorrow: [],
-          left: [],
-          quick_schedule: [],
-          teacher_schedule: [],
-          set_group: [],
-          configure_daily_sending: [],
-          settings: [],
-          other: []
-        }
+        pair_sending_configuration: {} # state(nil,false,true) => chats
       }
       bot_name = bot.api.get_me.username.downcase
-      User.users.each_value do |user|
-        (user.private? ? statistics[:private_chats] : statistics[:group_chats]) << user
+      Chat.all.each do |chat|
+        (chat.private? ? statistics[:private_chats] : statistics[:group_chats]) << chat
 
-        statistics[:groups][user.group_name] ||= []
-        statistics[:groups][user.group_name] << user
+        statistics[:groups][chat.group] ||= []
+        statistics[:groups][chat.group] << chat
 
-        statistics[:departments][user.department_name] ||= {}
-        statistics[:departments][user.department_name][user.group_name] ||= []
-        statistics[:departments][user.department_name][user.group_name] << user
+        statistics[:departments][chat.department] ||= {}
+        statistics[:departments][chat.department][chat.group] ||= []
+        statistics[:departments][chat.department][chat.group] << chat
 
-        statistics[:daily_sending_configuration][user.daily_sending] ||= []
-        statistics[:daily_sending_configuration][user.daily_sending] << user
+        statistics[:daily_sending_configuration][chat.daily_sending_time] ||= []
+        statistics[:daily_sending_configuration][chat.daily_sending_time] << chat
 
-        statistics[:pair_sending_configuration][user.pair_sending] ||= []
-        statistics[:pair_sending_configuration][user.pair_sending] << user
+        statistics[:pair_sending_configuration][chat.pair_sending] ||= []
+        statistics[:pair_sending_configuration][chat.pair_sending] << chat
 
-        statistics[:new_chats] << user if user.statistics[:start].then { it && it >= Time.now - 24 * 60 * 60 }
-
-        commands_statistics = collect_commands_statistics user, bot_name
-        commands_statistics.each do |k, v|
-          statistics[:command_usages][k] ||= []
-          statistics[:command_usages][k] += v
-        end
+        statistics[:new_chats] << chat if chat.created_at >= Time.now - 24 * 60 * 60
       end
+
+      statistics[:command_usages] = collect_commands_statistics bot_name
 
       logger.debug "Statistics collection took #{Time.now - start_time} seconds"
 
       statistics
     end
 
-    def collect_commands_statistics(user, bot_name)
-      user.statistics[:last_commands].map { it.merge({ user: user }) }.group_by do |usage|
-        text = usage[:command].downcase.then do
-          it.end_with?("@#{bot_name}") ? it.match(/^(.*)@#{bot_name}$/).match(1) : it
-        end
+    def collect_commands_statistics(bot_name)
+      CommandUsage.all.group_by do |usage|
+        text = usage.command.downcase.sub(/@#{bot_name}$/, '')
 
         case text
         when '/help'                         then :help

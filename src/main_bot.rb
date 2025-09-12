@@ -8,6 +8,8 @@ require_relative 'config'
 require_relative 'logger'
 require_relative 'parser'
 require_relative 'dev_bot'
+require_relative 'database'
+require_relative 'session'
 
 require_relative 'main_bot/debug_commands'
 require_relative 'main_bot/general_commands'
@@ -25,7 +27,7 @@ module Raspishika
   class Bot
     TOKEN = Config[:bot][:token]
     THEAD_POOL_SIZE = Config[:bot][:thread_pool_size]
-    MAX_RETRIES = Config[:bot][:max_retiries]
+    MAX_RETRIES = Config[:bot][:max_retries]
 
     LABELS = {
       left: 'Оставшиеся пары',
@@ -87,8 +89,7 @@ module Raspishika
       @dev_bot = DevBot.new main_bot: self, logger: @logger
       @username = nil
 
-      ImageGenerator.logger = Cache.logger = User.logger = @logger
-      User.load
+      ImageGenerator.logger = Cache.logger = @logger
     end
     attr_accessor :bot, :logger, :parser, :username
 
@@ -115,15 +116,10 @@ module Raspishika
       shutdown
     end
 
-    def users_save_loop
-      # TODO: Schedule it with cron.
-      while @run
-        User.save_all
-        600.times do
-          break unless @run
-
-          sleep 1
-        end
+    # Schedules a daily database backup at midnight using a cron job.
+    def schedule_db_backup
+      @scheduler.cron '0 0 * * *' do
+        backup_database if @run
       end
     end
 
@@ -136,12 +132,11 @@ module Raspishika
 
       @dev_bot_thread = Thread.new(@dev_bot, &:run)
 
-      @users_saving_loop = Thread.new(self, &:users_save_loop)
-
       @parser.initialize_browser_thread
       sleep 0.1 until @parser.ready?
 
       schedule_pair_sending
+      schedule_db_backup
 
       @sending_thread = Thread.new(self, &:daily_sending_loop)
     end
@@ -169,9 +164,6 @@ module Raspishika
     def shutdown
       report 'Bot stopped.'
       @run = false
-
-      @users_saving_loop&.join
-      User.save_all
 
       @dev_bot_thread&.kill
       @sending_thread&.join
@@ -212,9 +204,6 @@ module Raspishika
       when Telegram::Bot::Types::Message then handle_text_message message
       else logger.debug "Unhandled message type: #{message.class}"
       end
-
-      # TODO: Add response time metric to command statistics.
-      logger.debug "Message handled within #{Time.now - Time.at(message.date)} seconds"
     end
 
     def handle_text_message(message)
@@ -228,9 +217,9 @@ module Raspishika
                      " @#{message.from.username} #{message.from.full_name} => #{short_text.inspect}")
       end
 
-      user = User[message.chat.id, username: message.chat.username]
-      unless user.statistics[:start]
-        user.statistics[:start] = Time.now
+      chat = Chat.find_by tg_id: message.chat.id
+      unless chat
+        chat = Chat.create! tg_id: message.chat.id, username: message.chat.username
         msg =
           if message.chat.type == 'private'
             "New private chat: [#{message.chat.id}] @#{message.from.username} #{message.from.full_name}"
@@ -240,6 +229,7 @@ module Raspishika
         report msg
         logger.debug msg
       end
+      session = Session[chat]
 
       text = message.text.downcase.then do
         if it.end_with?("@#{@username.downcase}")
@@ -251,119 +241,129 @@ module Raspishika
 
       case text
       when '/start'
-        handle_command(message, user, text, ok_stats: false) { start_message message, user }
+        handle_command(message, chat, text, ok_stats: false) { start_message message, chat, session }
       when '/help'
-        handle_command(message, user, text) { help_message message, user }
+        handle_command(message, chat, text) { help_message message, chat, session }
       when '/stop'
-        handle_command(message, user, text, ok_stats: false) { stop message, user }
+        handle_command(message, chat, text, ok_stats: false) { stop message, chat, session }
 
       when '/week'
-        handle_command(message, user, text) { send_week_schedule message, user }
+        handle_command(message, chat, text) { send_week_schedule message, chat, session }
       when '/tomorrow'
-        handle_command(message, user, text) { send_tomorrow_schedule message, user }
+        handle_command(message, chat, text) { send_tomorrow_schedule message, chat, session }
       when '/left'
-        handle_command(message, user, text) { send_left_schedule message, user }
+        handle_command(message, chat, text) { send_left_schedule message, chat, session }
 
       when '/set_group'
-        handle_command(message, user, text, ok_stats: false) { configure_group message, user }
+        handle_command(message, chat, text, ok_stats: false) { configure_group message, chat, session }
       when '/configure_daily_sending'
-        handle_command(message, user, text, ok_stats: false) { configure_daily_sending message, user }
+        handle_command(message, chat, text, ok_stats: false) { configure_daily_sending message, chat, session }
       when '/daily_sending_off'
-        handle_command(message, user, text) { disable_daily_sending message, user }
+        handle_command(message, chat, text) { disable_daily_sending message, chat, session }
       when '/pair_sending_on'
-        handle_command(message, user, text) { enable_pair_sending message, user }
+        handle_command(message, chat, text) { enable_pair_sending message, chat, session }
       when '/pair_sending_off'
-        handle_command(message, user, text) { disable_pair_sending message, user }
+        handle_command(message, chat, text) { disable_pair_sending message, chat, session }
       when '/cancel', 'отмена'
-        handle_command(message, user, '/cancel') { cancel_action message, user }
+        handle_command(message, chat, '/cancel') { cancel_action message, chat, session }
 
-      when ->(t) { user.default? && t == LABELS[:week].downcase }
-        handle_command(message, user, '/week') { send_week_schedule message, user }
-      when ->(t) { user.default? && t == LABELS[:tomorrow].downcase }
-        handle_command(message, user, '/tomorrow') { send_tomorrow_schedule message, user }
-      when ->(t) { user.default? && t == LABELS[:left].downcase }
-        handle_command(message, user, '/left') { send_left_schedule message, user }
+      when ->(t) { session.default? && t == LABELS[:week].downcase }
+        handle_command(message, chat, '/week') { send_week_schedule message, chat, session }
+      when ->(t) { session.default? && t == LABELS[:tomorrow].downcase }
+        handle_command(message, chat, '/tomorrow') { send_tomorrow_schedule message, chat, session }
+      when ->(t) { session.default? && t == LABELS[:left].downcase }
+        handle_command(message, chat, '/left') { send_left_schedule message, chat, session }
 
-      when ->(t) { user.selecting_department? && user.departments.map(&:downcase).include?(t) }
-        handle_command(message, user, user.selecting_quick? ? '/quick_schedule' : '/set_group', ok_stats: false) do
-          select_department message, user
+      when ->(t) { session.selecting_department? && session.departments.map(&:downcase).include?(t) }
+        handle_command(message, chat, session.selecting_quick? ? '/quick_schedule' : '/set_group', ok_stats: false) do
+          select_department message, chat, session
         end
-      when ->(_) { user.selecting_department? }
-        handle_command(message, user, user.selecting_quick? ? '/quick_schedule' : '/set_group', ok_stats: false) do
+      when ->(_) { session.selecting_department? }
+        handle_command(message, chat, session.selecting_quick? ? '/quick_schedule' : '/set_group', ok_stats: false) do
           send_message(chat_id: message.chat.id, text: 'Неверное название отделения, попробуй ещё раз')
         end
 
-      when ->(t) { user.selecting_group? && user.groups.keys.map(&:downcase).include?(t) }
-        handle_command(message, user, user.selecting_quick? ? '/quick_schedule' : '/set_group') do
-          select_group message, user
+      when ->(t) { session.selecting_group? && session.groups.keys.map(&:downcase).include?(t) }
+        handle_command(message, chat, session.selecting_quick? ? '/quick_schedule' : '/set_group') do
+          select_group message, chat, session
         end
-      when ->(_) { user.selecting_group? }
-        handle_command(message, user, user.selecting_quick? ? '/quick_schedule' : '/set_group') do
+      when ->(_) { session.selecting_group? }
+        handle_command(message, chat, session.selecting_quick? ? '/quick_schedule' : '/set_group') do
           send_message(chat_id: message.chat.id, text: 'Неверное название группы, попробуй ещё раз')
         end
 
-      when ->(t) { user.default? && t == LABELS[:quick_schedule].downcase }
-        handle_command(message, user, '/quick_schedule', ok_stats: false) { ask_for_quick_schedule_type message, user }
+      when ->(t) { session.default? && t == LABELS[:quick_schedule].downcase }
+        handle_command(message, chat, '/quick_schedule', ok_stats: false) do
+          ask_for_quick_schedule_type message, chat, session
+        end
 
-      when ->(t) { user.quick_schedule? && t == LABELS[:other_group].downcase || t == '/quick_schedule' }
-        handle_command(message, user, '/quick_schedule', ok_stats: false) { configure_group message, user, quick: true }
-      when ->(t) { user.quick_schedule? && t == LABELS[:teacher].downcase || t == '/teacher_schedule' }
-        handle_command(message, user, '/teacher_schedule', ok_stats: false) { ask_for_teacher message, user }
+      when ->(t) { session.quick_schedule? && t == LABELS[:other_group].downcase || t == '/quick_schedule' }
+        handle_command(message, chat, '/quick_schedule', ok_stats: false) do
+          configure_group message, chat, session, quick: true
+        end
+      when ->(t) { session.quick_schedule? && t == LABELS[:teacher].downcase || t == '/teacher_schedule' }
+        handle_command(message, chat, '/teacher_schedule', ok_stats: false) { ask_for_teacher message, chat, session }
 
-      when ->(_) { user.selecting_teacher? }
+      when ->(_) { session.selecting_teacher? }
         if validate_teacher_name text
-          handle_command(message, user, '/teacher_schedule') { send_teacher_schedule message, user }
+          handle_command(message, chat, '/teacher_schedule') { send_teacher_schedule message, chat, session }
         else
-          handle_command(message, user, '/teacher_schedule', ok_stats: false) { reask_for_teacher message, user, text }
+          handle_command(message, chat, '/teacher_schedule', ok_stats: false) do
+            reask_for_teacher message, chat, session, text
+          end
         end
 
-      when ->(t) { user.default? && t == LABELS[:settings].downcase }
-        handle_command(message, user, '/settings', ok_stats: false) { send_settings_menu message, user }
-      when ->(t) { user.settings? && t == LABELS[:my_group].downcase }
-        handle_command(message, user, '/set_group', ok_stats: false) { configure_group message, user }
-      when ->(t) { user.settings? && t == LABELS[:daily_sending].downcase }
-        handle_command(message, user, '/configure_daily_sending', ok_stats: false) do
-          configure_daily_sending message, user
+      when ->(t) { session.default? && t == LABELS[:settings].downcase }
+        handle_command(message, chat, '/settings', ok_stats: false) { send_settings_menu message, chat, session }
+      when ->(t) { session.settings? && t == LABELS[:my_group].downcase }
+        handle_command(message, chat, '/set_group', ok_stats: false) { configure_group message, chat, session }
+      when ->(t) { session.settings? && t == LABELS[:daily_sending].downcase }
+        handle_command(message, chat, '/configure_daily_sending', ok_stats: false) do
+          configure_daily_sending message, chat, session
         end
-      when ->(t) { user.settings? && t == LABELS[:pair_sending_on].downcase }
-        handle_command(message, user, '/pair_sending_on') { enable_pair_sending message, user }
-      when ->(t) { user.settings? && t == LABELS[:pair_sending_off].downcase }
-        handle_command(message, user, '/pair_sending_off') { disable_pair_sending message, user }
+      when ->(t) { session.settings? && t == LABELS[:pair_sending_on].downcase }
+        handle_command(message, chat, '/pair_sending_on') { enable_pair_sending message, chat, session }
+      when ->(t) { session.settings? && t == LABELS[:pair_sending_off].downcase }
+        handle_command(message, chat, '/pair_sending_off') { disable_pair_sending message, chat, session }
 
-      when ->(t) { user.setting_daily_sending? && t == LABELS[:disable].downcase }
-        handle_command(message, user, '/daily_sending_off') { disable_daily_sending message, user }
-      when ->(t) { user.setting_daily_sending? && t =~ /^\d{1,2}:\d{2}$/ }
+      when ->(t) { session.setting_daily_sending? && t == LABELS[:disable].downcase }
+        handle_command(message, chat, '/daily_sending_off') { disable_daily_sending message, chat, session }
+      when ->(t) { session.setting_daily_sending? && t =~ /^\d{1,2}:\d{2}$/ }
         if begin Time.parse message.text
         rescue StandardError then false
         end
-          handle_command(message, user, '/set_daily_sending') { set_daily_sending message, user }
+          handle_command(message, chat, '/set_daily_sending') { set_daily_sending message, chat, session }
         else
-          handle_command(message, user, '/configure_daily_sending', ok_stats: false) do
+          handle_command(message, chat, '/configure_daily_sending', ok_stats: false) do
             send_message(chat_id: message.chat.id, text: 'Неправильный формат времени, попробуйте ещё раз')
           end
         end
-      when %r{^/debug\s+\w+$} then debug_command message, user
+      when %r{^/debug\s+\w+$} then debug_command message, chat
       end
     end
 
-    def handle_command(message, user, command_name, ok_stats: true)
-      if catch :fail do
+    def handle_command(message, chat, command_name, ok_stats: true)
+      # Catch possible fail from methods `send_week_schedule` and `send_teacher_schedule`
+      failed = catch :fail do
         yield
-        user.push_command_usage command: command_name, ok: true if ok_stats
+        chat.log_command_usage(command_name, true, Time.now - Time.at(message.date)) if ok_stats
         false
       end
-        user.push_command_usage command: command_name, ok: false
-      end
+
+      chat.log_command_usage(command_name, false, Time.now - Time.at(message.date)) if failed
     rescue Telegram::Bot::Exceptions::ResponseError => e
       handle_telegram_api_error e, message
     rescue StandardError => e
       log_error message, e
-      user.push_command_usage command: command_name, ok: false
+      chat.log_command_usage(command_name, false, Time.now - Time.at(message.date))
       send_message(
         chat_id: message.chat.id,
         text: 'Произошла ошибка, попробуйте позже.',
-        reply_markup: default_reply_markup(user.id)
+        reply_markup: default_reply_markup(chat.tg_id)
       )
+    ensure
+      logger.debug "Message handled within #{Time.now - Time.at(message.date)} seconds"
+      logger.debug "Current chat's state: #{Session[chat].state}"
     end
 
     def handle_telegram_api_error(err, message)
@@ -400,13 +400,13 @@ module Raspishika
       begin
         bot.api.send_photo(*args, **kwargs)
       rescue Net::OpenTimeout, Faraday::ConnectionFailed => e
-        logger.error "Failed to send photo to ##{user.id}: #{e.detailed_message}"
+        logger.error "Failed to send photo to ##{chat.tg_id}: #{e.detailed_message}"
         photo_sending_retries += 1
         retry if photo_sending_retries < 3
         send_message(
           chat_id: message.chat.id,
           text: 'Произошла ошибка, попробуйте позже.',
-          reply_markup: default_reply_markup(user.id)
+          reply_markup: default_reply_markup(chat.tg_id)
         )
       end
     end
