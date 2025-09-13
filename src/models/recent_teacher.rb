@@ -3,7 +3,7 @@
 module Raspishika
   class RecentTeacher < ActiveRecord::Base
     belongs_to :chat
-    validates :name, presence: true, uniqueness: true
+    validates :name, presence: true
     validate :max_six_teachers_per_chat
 
     private

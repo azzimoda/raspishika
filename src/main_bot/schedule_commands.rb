@@ -127,7 +127,7 @@ module Raspishika
         chat_id: chat.tg_id,
         text: 'Пришли полное имя или фамилию преподавателя',
         reply_markup: {
-          keyboard: [['Отмена']] + chat.recent_teachers.map(&:name).each_slice(2).to_a,
+          keyboard: [['Отмена']] + chat.recent_teachers.order(created_at: :desc).map(&:name).each_slice(2).to_a,
           resize_keyboard: true,
           one_time_keyboard: true
         }.to_json
