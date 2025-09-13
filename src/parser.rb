@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'nokogiri'
+require 'net/http'
 require 'open-uri'
 require 'uri'
 require 'cgi'
@@ -25,6 +26,13 @@ module Raspishika
       @browser = nil
       @ready = false
       @mutex = Mutex.new
+
+      @schedule_scraper =
+        method(Config[:parser][:fetch_schedule_with_browser] ? :scrape_schedule_with_browser : :scrape_schedule)
+      logger.debug "@schedule_scraper: #{@schedule_scraper.inspect}"
+      @teacher_schedule_scraper =
+        method(Config[:parser][:fetch_teacher_schedule_with_browser] ? :scrape_schedule_with_browser : :scrape_schedule)
+      logger.debug "@teacher_schedule_scraper: #{@teacher_schedule_scraper.inspect}"
     end
     attr_accessor :logger, :ready
 
@@ -34,26 +42,41 @@ module Raspishika
 
     # TODO: Add browser pool.
     def initialize_browser_thread
+      unless Config[:parser][:browser][:threaded]
+        logger.info 'Browser thread initialization skipped'
+        return
+      end
+
       logger&.info 'Initializing browser thread...'
       @thread = Thread.new do
         Playwright.create(playwright_cli_executable_path: 'npx playwright') do |playwright|
           @browser = playwright.chromium.launch(headless: true, timeout: TIMEOUT * 1000)
           logger&.info 'Browser is ready'
           @ready = true
-          sleep 1 while @browser.connected?
+          sleep 0.1 while @browser.connected?
         end
-        logger&.info 'Browser thread is stopped.'
+        logger.info 'Browser thread is stopped'
       end
     end
 
     def stop_browser_thread
-      logger&.info 'Stopping browser thread...'
-      @browser&.close
-      @thread&.join
+      return unless @browser && @thread
+
+      logger.info 'Stopping browser thread...'
+      @browser.close
+      @thread.join
     end
 
     def use_browser(&block)
-      @mutex.synchronize { block.call @browser }
+      if @browser && @thread && @ready
+        @mutex.synchronize { block.call @browser }
+      else
+        logger.info 'Using browser...'
+        Playwright.create(playwright_cli_executable_path: 'npx playwright') do |playwright|
+          browser = playwright.chromium.launch headless: true, timeout: TIMEOUT * 1000
+          block.call browser
+        end
+      end
     end
 
     def fetch_departments(unsafe_cache: false)
@@ -130,7 +153,7 @@ module Raspishika
 
     def fetch_schedule(group_info)
       unless group_info[:department] && group_info[:group]
-        logger.error 'Wrong group data'
+        logger.error "Wrong group data: #{group_info.inspect}"
         return nil
       end
 
@@ -146,7 +169,7 @@ module Raspishika
         logger.debug "URL: #{url}"
 
         schedule =
-          if (schedule = try_fetch_schedule(url, times: 2, raise_on_failure: false))
+          if (schedule = @schedule_scraper.call(url, times: 2, raise_on_failure: false))
             schedule
           else
             logger.warn 'Failed to load page, trying to update department ID...'
@@ -158,7 +181,7 @@ module Raspishika
             logger.debug "URL: #{url}"
 
             # Second try with updated department ID
-            try_fetch_schedule url
+            @schedule_scraper.call url
           end
 
         use_browser do |browser|
@@ -171,15 +194,13 @@ module Raspishika
       end
     end
 
-    def try_fetch_schedule(url, teacher: false, **kwargs)
+    # Deprecated. Leave the method for potential future use.
+    def scrape_schedule_with_browser(url, teacher: false, **kwargs)
       html = nil
       use_browser do |browser|
         page = browser.new_page
         try_timeout(**kwargs) do
-          page.goto('https://mnokol.tyuiu.ru/', timeout: TIMEOUT * 1000)
-          sleep 1
           headers = generate_headers
-          # logger.debug "HEADERS: #{headers.pretty_inspect}"
           page.set_extra_http_headers(**headers)
           html = nil
           page.goto(url, timeout: TIMEOUT * 1000)
@@ -212,6 +233,35 @@ module Raspishika
       debug_dir = File.join('data', 'debug')
       Dir.mkdir(debug_dir) unless Dir.exist?(debug_dir)
       # Saving original HTML into data/debug/schedule.html for debug
+      File.write(File.join(debug_dir, 'schedule.html'), html)
+    end
+
+    def scrape_schedule(url, teacher: false, **kwargs)
+      html = nil
+
+      headers = generate_headers
+      uri = URI.parse url
+      resp = Net::HTTP.start(uri.host, uri.port, use_ssl: true) do |http|
+        req = Net::HTTP::Get.new uri, headers
+        http.request req
+      end
+
+      unless resp.code.to_i == 200
+        logger.error "Failed to load page: #{url}"
+        return
+      end
+      logger.debug 'Page loaded successfully'
+
+      html = resp.body.dup.force_encoding('Windows-1251')
+                 .encode('UTF-8', invalid: :replace, undef: :replace, replace: '')
+      doc = Nokogiri::HTML html
+      schedule = parse_schedule_table(doc.at_css('table#main_table'), teacher: teacher)
+      raise 'Failed to find table#main_table.' if schedule.nil? && kwargs[:raise_on_failure] == false
+
+      schedule
+    ensure
+      debug_dir = File.join('data', 'debug')
+      Dir.mkdir(debug_dir) unless Dir.exist?(debug_dir)
       File.write(File.join(debug_dir, 'schedule.html'), html)
     end
 
@@ -253,7 +303,7 @@ module Raspishika
               sids.each_with_index.map { |sid, i| "&shed[#{i}]=#{sid}&union[#{i}]=0&year[#{i}]=#{Time.now.year}" }.join
         logger.debug "URL: #{url}"
 
-        try_fetch_schedule(url, teacher: true).tap do |s|
+        @teacher_schedule_scraper.call(url, teacher: true).tap do |s|
           use_browser do |browser|
             page = browser.new_page
             ImageGenerator.generate page, s, teacher_id: teacher_id, teacher_name: teacher_name
@@ -268,11 +318,8 @@ module Raspishika
         'User-Agent' => UserAgentRandomizer::UserAgent.fetch.string,
         'Referer' => 'https://coworking.tyuiu.ru/shs/all_t/',
         'Accept-Language' => "#{%w[ru-RU,ru en-US,en].sample};q=0.#{rand(5..9)}"
-      }.tap do |a|
-        # TODO? This may be not necessary, maybe delete it.
-        { 'Sec-Fetch-Dest' => 'document', 'Sec-Fetch-Mode' => 'navigate', 'Connection' => 'keep-alive' }
-          .each { |k, v| a[k] = v if rand(2).zero? }
-      end
+      }.merge({ 'Sec-Fetch-Dest' => 'document', 'Sec-Fetch-Mode' => 'navigate', 'Connection' => 'keep-alive' }
+              .select { rand(2).zero? })
     end
 
     def update_department_id(group_info, unsafe_cache: false)
@@ -388,7 +435,7 @@ module Raspishika
             classroom: day_cell.at_css('.cab')&.text&.strip
           } }
         end
-      if day_info.dig(:content, :discipline)
+      if day_info[:content].is_a?(Hash) && day_info[:content][:discipline]
         if teacher
           disc, group = day_info[:content][:discipline]&.then do |el|
             el.children.select { it.text? || it.element? && it.name == 'div' }.map { it.text.strip }
