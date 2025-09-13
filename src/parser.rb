@@ -35,7 +35,7 @@ module Raspishika
 
     # TODO: Add browser pool.
     def initialize_browser_thread
-      unless Config[:pasrser][:browser][:threaded]
+      unless Config[:parser][:browser][:threaded]
         logger.info 'Browser thread initialization skipped'
         return
       end
@@ -64,8 +64,11 @@ module Raspishika
       if @browser && @thread && @ready
         @mutex.synchronize { block.call @browser }
       else
-        browser = playwright.chromium.launch headless: true, timeout: TIMEOUT * 1000
-        block.call browser
+        logger.info 'Using browser...'
+        Playwright.create(playwright_cli_executable_path: 'npx playwright') do |playwright|
+          browser = playwright.chromium.launch headless: true, timeout: TIMEOUT * 1000
+          block.call browser
+        end
       end
     end
 

@@ -25,7 +25,7 @@ module Raspishika
   class Bot
     TOKEN = Config[:bot][:token]
     THEAD_POOL_SIZE = Config[:bot][:thread_pool_size]
-    MAX_RETRIES = Config[:bot][:max_retiries]
+    MAX_RETRIES = Config[:bot][:max_retries]
 
     LABELS = {
       left: 'Оставшиеся пары',
@@ -139,7 +139,7 @@ module Raspishika
       @users_saving_loop = Thread.new(self, &:users_save_loop)
 
       @parser.initialize_browser_thread
-      sleep 0.1 until @parser.ready?
+      sleep 0.1 until !Config[:parser][:browser][:threaded] || @parser.ready?
 
       schedule_pair_sending
 
@@ -407,9 +407,9 @@ module Raspishika
           retry
         end
         send_message(
-          chat_id: message.chat.id,
+          chat_id: kwargs[:chat_id],
           text: 'Произошла ошибка, попробуйте позже.',
-          reply_markup: default_reply_markup(user.id)
+          reply_markup: default_reply_markup(kwargs[:chat_id])
         )
       end
     end
