@@ -26,6 +26,13 @@ module Raspishika
       @browser = nil
       @ready = false
       @mutex = Mutex.new
+
+      @schedule_scraper =
+        method(Config[:parser][:fetch_schedule_with_browser] ? :scrape_schedule_with_browser : :scrape_schedule)
+      logger.debug "@schedule_scraper: #{@schedule_scraper.inspect}"
+      @teacher_schedule_scraper =
+        method(Config[:parser][:fetch_teacher_schedule_with_browser] ? :scrape_schedule_with_browser : :scrape_schedule)
+      logger.debug "@teacher_schedule_scraper: #{@teacher_schedule_scraper.inspect}"
     end
     attr_accessor :logger, :ready
 
@@ -144,13 +151,11 @@ module Raspishika
       nil
     end
 
-    def fetch_schedule(group_info, with_browser: false)
+    def fetch_schedule(group_info)
       unless group_info[:department] && group_info[:group]
         logger.error "Wrong group data: #{group_info.inspect}"
         return nil
       end
-
-      strategy = with_browser ? method(:scrape_schedule_with_browser) : method(:scrape_schedule)
 
       groups_data = fetch_all_groups fetch_departments
       group_info = group_info.merge groups_data.dig group_info[:department], group_info[:group]
@@ -164,7 +169,7 @@ module Raspishika
         logger.debug "URL: #{url}"
 
         schedule =
-          if (schedule = strategy.call(url, times: 2, raise_on_failure: false))
+          if (schedule = @schedule_scraper.call(url, times: 2, raise_on_failure: false))
             schedule
           else
             logger.warn 'Failed to load page, trying to update department ID...'
@@ -176,7 +181,7 @@ module Raspishika
             logger.debug "URL: #{url}"
 
             # Second try with updated department ID
-            strategy.call url
+            @schedule_scraper.call url
           end
 
         use_browser do |browser|
@@ -298,7 +303,7 @@ module Raspishika
               sids.each_with_index.map { |sid, i| "&shed[#{i}]=#{sid}&union[#{i}]=0&year[#{i}]=#{Time.now.year}" }.join
         logger.debug "URL: #{url}"
 
-        scrape_schedule(url, teacher: true).tap do |s|
+        @teacher_schedule_scraper.call(url, teacher: true).tap do |s|
           use_browser do |browser|
             page = browser.new_page
             ImageGenerator.generate page, s, teacher_id: teacher_id, teacher_name: teacher_name
@@ -313,11 +318,8 @@ module Raspishika
         'User-Agent' => UserAgentRandomizer::UserAgent.fetch.string,
         'Referer' => 'https://coworking.tyuiu.ru/shs/all_t/',
         'Accept-Language' => "#{%w[ru-RU,ru en-US,en].sample};q=0.#{rand(5..9)}"
-      }.tap do |a|
-        # TODO? This may be not necessary, maybe delete it.
-        { 'Sec-Fetch-Dest' => 'document', 'Sec-Fetch-Mode' => 'navigate', 'Connection' => 'keep-alive' }
-          .each { |k, v| a[k] = v if rand(2).zero? }
-      end
+      }.merge({ 'Sec-Fetch-Dest' => 'document', 'Sec-Fetch-Mode' => 'navigate', 'Connection' => 'keep-alive' }
+              .select { rand(2).zero? })
     end
 
     def update_department_id(group_info, unsafe_cache: false)
