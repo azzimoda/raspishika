@@ -19,22 +19,15 @@ module Raspishika
         end
 
         futures = chats.map do |chat|
-          Concurrent::Future.execute(executor: sending_thread_pool) do
-            start_time = Time.now
-            send_week_schedule nil, chat, Session[chat]
-            logger.debug "Daily schedule sent to @#{chat.username} ##{chat.tg_id}"
-            chat.push_daily_sending_report conf_time: it.daily_sending, process_time: Time.now - start_time, ok: true
-          rescue StandardError => e
-            chat.push_daily_sending_report conf_time: it.daily_sending, process_time: Time.now - start_time, ok: false
-            msg = "Error while sending daily schedule: #{e.detailed_message}"
-            report msg, backtrace: e.backtrace.join("\n"), code: true
-            logger.error msg
-            logger.error e.backtrace.join("\n\t")
-          end
+          Concurrent::Future.execute(executor: sending_thread_pool) { send_daily_notificaton chat }
         end
         futures.each(&:wait)
 
-        logger.debug "Daily sending for #{chats.count} users took #{Time.now - current_time} seconds" if chats.any?
+        # TODO: Test it on production. yes
+        msg_part = "Daily sending for #{chats.count} chats took"
+        taken_time = Time.now - current_time
+        logger.debug "#{msg_part} #{taken_time} seconds" if chats.any?
+        report "#{msg_part} more than a minute: #{taken_time.to_f / 60} min" if taken_time > 60
 
         last_sending_time = current_time
 
@@ -46,11 +39,20 @@ module Raspishika
       end
 
       sending_thread_pool.shutdown
-      sending_thread_pool.wait_for_termination 60
-      sending_thread_pool.kill if sending_thread_pool.running?
+      sending_thread_pool.wait_for_termination
     end
 
     private
+
+    def send_daily_notificaton(chat)
+      send_week_schedule nil, chat, Session[chat]
+      logger.debug "Daily schedule sent to @#{chat.username} ##{chat.tg_id}"
+    rescue StandardError => e
+      msg = "Error while sending daily schedule: #{e.detailed_message}"
+      report msg, backtrace: e.backtrace.join("\n"), code: true
+      logger.error msg
+      logger.error e.backtrace.join("\n\t")
+    end
 
     def schedule_pair_sending
       logger.info 'Scheduling pair sending...'
@@ -76,8 +78,10 @@ module Raspishika
         else
           Chat.where(pair_sending: true).group_by { [it.department, it.group] }
         end
-      logger.debug "Sending pair notification to #{groups.size} groups..."
 
+      start_time = Time.now
+
+      logger.debug "Sending pair notification to #{groups.size} groups..."
       futures = groups.map do |(_dname, gname), chats|
         Concurrent::Future.execute(executor: sending_thread_pool) do
           send_pair_notification_for_group(chats, time)
@@ -88,9 +92,14 @@ module Raspishika
       end
       futures.each(&:wait)
 
+      # TODO: Test it on production. yes
+      msg_part = "Pair sending for #{groups.size} groups (#{groups.each_value.sum(&:size)} chats) took"
+      taken_time = Time.now - start_time
+      logger.debug "#{msg_part} #{taken_time} seconds"
+      report "#{msg_part} more than a minute: #{taken_time.to_f / 60} min" if taken_time > 60
+
       sending_thread_pool.shutdown
-      sending_thread_pool.wait_for_termination 60
-      sending_thread_pool.kill if sending_thread_pool.running?
+      sending_thread_pool.wait_for_termination
     end
 
     def send_pair_notification_for_group(chats, time)

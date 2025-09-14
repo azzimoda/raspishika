@@ -27,12 +27,12 @@ module Raspishika
       @ready = false
       @mutex = Mutex.new
 
-      @schedule_scraper =
-        method(Config[:parser][:fetch_schedule_with_browser] ? :scrape_schedule_with_browser : :scrape_schedule)
-      logger.debug "@schedule_scraper: #{@schedule_scraper.inspect}"
-      @teacher_schedule_scraper =
-        method(Config[:parser][:fetch_teacher_schedule_with_browser] ? :scrape_schedule_with_browser : :scrape_schedule)
-      logger.debug "@teacher_schedule_scraper: #{@teacher_schedule_scraper.inspect}"
+      select_scraper = ->(x) { x ? :scrape_schedule_with_browser : :scrape_schedule }
+      @schedule_scraper = method select_scraper.call Config[:parser][:fetch_schedule_with_browser]
+      @teacher_schedule_scraper = method select_scraper.call Config[:parser][:fetch_teacher_schedule_with_browser]
+
+      logger.debug "@schedule_scraper: #{@schedule_scraper.name}"
+      logger.debug "@teacher_schedule_scraper: #{@teacher_schedule_scraper.name}"
     end
     attr_accessor :logger, :ready
 
@@ -178,7 +178,6 @@ module Raspishika
             group_info = group_info.merge new_group_info
             url = "#{base_url}?action=group&union=0&sid=#{new_group_info[:sid]}&gr=#{new_group_info[:gr]}" \
                   "&year=#{Time.now.year}&vr=1"
-            logger.debug "URL: #{url}"
 
             # Second try with updated department ID
             @schedule_scraper.call url
@@ -194,8 +193,9 @@ module Raspishika
       end
     end
 
-    # Deprecated. Leave the method for potential future use.
     def scrape_schedule_with_browser(url, teacher: false, **kwargs)
+      logger.debug "URL: #{url}"
+
       html = nil
       use_browser do |browser|
         page = browser.new_page
@@ -237,8 +237,9 @@ module Raspishika
     end
 
     def scrape_schedule(url, teacher: false, **kwargs)
-      html = nil
+      logger.debug "URL: #{url}"
 
+      html = nil
       headers = generate_headers
       uri = URI.parse url
       resp = Net::HTTP.start(uri.host, uri.port, use_ssl: true) do |http|

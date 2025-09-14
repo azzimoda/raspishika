@@ -192,8 +192,8 @@ module Raspishika
       DebugCommands.send(debug_command_name, bot: self, user: user, message: message)
     end
 
-    def report(*args, **kwargs)
-      @dev_bot.report(*args, **kwargs)
+    def report(...)
+      @dev_bot.report(...)
     end
 
     def handle_message(message)
