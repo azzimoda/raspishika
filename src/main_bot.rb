@@ -4,6 +4,7 @@ require 'concurrent'
 require 'rufus-scheduler'
 require 'telegram/bot'
 
+require_relative 'utils'
 require_relative 'config'
 require_relative 'logger'
 require_relative 'parser'
@@ -16,12 +17,6 @@ require_relative 'main_bot/general_commands'
 require_relative 'main_bot/config_commands'
 require_relative 'main_bot/schedule_commands'
 require_relative 'main_bot/sending'
-
-class Telegram::Bot::Types::User # rubocop:disable Style/ClassAndModuleChildren,Style/Documentation
-  def full_name
-    "#{first_name} #{last_name}".strip
-  end
-end
 
 module Raspishika
   class Bot
@@ -219,11 +214,15 @@ module Raspishika
         chat = Chat.create! tg_id: message.chat.id, username: message.chat.username
         msg =
           if message.chat.type == 'private'
-            "New private chat: [#{message.chat.id}] @#{message.from.username} #{message.from.full_name}"
+            "New private chat: [#{message.chat.id}] @#{message.from.username&.escape_markdown}" \
+            " #{message.from.full_name&.escape_markdown}\n" \
+            "`/chat #{message.chat.id}`"
           else
-            "New group chat: [#{message.chat.id}] @#{message.chat.username} #{message.chat.title}"
+            "New group chat: [#{message.chat.id}] @#{message.chat.username&.escape_markdown}" \
+            " #{message.chat.title&.escape_markdown} \n" \
+            "`/chat #{message.chat.id}`"
           end
-        report msg
+        report msg, markdown: true
         logger.debug msg
       end
       session = Session[chat]
