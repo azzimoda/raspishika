@@ -3,7 +3,7 @@
 require_relative 'test_helper'
 
 describe Raspishika::ScheduleParser do
-  let(:logger) { Logger.new $stdout }
+  let(:logger) { Raspishika.logger!(file: false) }
 
   before do
     @parser = initialize_parser

@@ -25,6 +25,8 @@ end
 
 module Raspishika
   class Bot
+    include GlobalLogger
+
     TOKEN = Config[:bot][:token]
     THEAD_POOL_SIZE = Config[:bot][:thread_pool_size]
     MAX_RETRIES = Config[:bot][:max_retries]
@@ -78,20 +80,17 @@ module Raspishika
     ].freeze
 
     def initialize
-      @logger = Raspishika::Logger.new
       @scheduler = Rufus::Scheduler.new
-      @parser = Raspishika::ScheduleParser.new(logger: @logger)
+      @parser = ScheduleParser.new
       @thread_pool = Concurrent::FixedThreadPool.new THEAD_POOL_SIZE
       @retries = 0
 
       @token = TOKEN
       @run = true
-      @dev_bot = DevBot.new main_bot: self, logger: @logger
+      @dev_bot = DevBot.new main_bot: self
       @username = nil
-
-      ImageGenerator.logger = Cache.logger = @logger
     end
-    attr_accessor :bot, :logger, :parser, :username
+    attr_accessor :bot, :parser, :username
 
     def run
       logger.info 'Starting bot...'
@@ -197,9 +196,6 @@ module Raspishika
     end
 
     def handle_message(message)
-      # Skip messages sent more than 1 hour ago.
-      return if Time.at(message.date) < Time.now - 1 * 60 * 60
-
       case message
       when Telegram::Bot::Types::Message then handle_text_message message
       else logger.debug "Unhandled message type: #{message.class}"
@@ -207,6 +203,7 @@ module Raspishika
     end
 
     def handle_text_message(message)
+      return if Time.at(message.date) < Time.now - 60 * 60 # Skip messages sent more than 1 hour ago.
       return unless message.text
 
       short_text = message.text.size > 32 ? "#{message.text[0...32]}…" : message.text
@@ -363,7 +360,6 @@ module Raspishika
       )
     ensure
       logger.debug "Message handled within #{Time.now - Time.at(message.date)} seconds"
-      logger.debug "Current chat's state: #{Session[chat].state}"
     end
 
     def handle_telegram_api_error(err, message)
@@ -414,8 +410,8 @@ module Raspishika
       end
     end
 
-    def send_message(*args, **kwargs)
-      bot.api.send_message(*args, **kwargs)
+    def send_message(...)
+      bot.api.send_message(...)
     end
 
     def default_reply_markup(id)

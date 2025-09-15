@@ -3,7 +3,12 @@
 require 'json'
 require 'time'
 
+require_relative 'logger'
+
 module Raspishika
+  include GlobalLogger
+  extend GlobalLogger
+
   class User
     module State
       DEFAULT = :default
@@ -21,11 +26,10 @@ module Raspishika
     TEMP_FILE = File.expand_path('../data/cache/users.json.tmp', __dir__)
 
     @users = {}
-    @logger = nil
     @mutex = Mutex.new
 
     class << self
-      attr_accessor :logger, :users
+      attr_accessor :users
 
       def [](id, username: nil)
         @mutex.synchronize { (@users[id.to_s] ||= new id.to_s, username: username).tap { it.username ||= username } }
@@ -55,7 +59,7 @@ module Raspishika
       end
 
       def load(file = BACKUP_FILE)
-        logger&.info 'Loading chats...'
+        logger.info 'Loading chats...'
         data = JSON.parse(File.read(file), symbolize_names: true).transform_keys(&:to_s)
         @users = data.map { |id, data| [id.to_s, new(id, **data)] }.to_h
         @users.each_value do |user|
@@ -64,9 +68,9 @@ module Raspishika
           user.statistics[:daily_sendings]&.each { it[:timestamp] = Time.parse it[:timestamp] }
           user.statistics[:pair_sendings]&.each { it[:timestamp] = Time.parse it[:timestamp] }
         end
-        logger&.info "Loaded #{@users.size} chats"
+        logger.info "Loaded #{@users.size} chats"
       rescue Errno::ENOENT, JSON::ParserError => e
-        logger&.error "Failed to load users: #{e.detailed_message}"
+        logger.error "Failed to load users: #{e.detailed_message}"
         @users = {}
       end
     end
@@ -165,7 +169,7 @@ module Raspishika
     end
 
     def push_command_usage(command:, ok: true, timestamp: Time.now)
-      User.logger&.debug "Pushing command usage for user #{id}: #{command}"
+      logger.debug "Pushing command usage for user #{id}: #{command}"
       @statistics[:last_commands].tap do |last_commands|
         last_commands << { command: command, ok: ok, timestamp: timestamp }
         last_commands.shift [0, last_commands.size - 100].max
@@ -173,7 +177,7 @@ module Raspishika
     end
 
     def push_daily_sending_report(conf_time:, process_time:, ok: true, timestamp: Time.now)
-      User.logger&.debug "Pushing daily sending report for user #{id}: #{conf_time} #{process_time} #{ok}"
+      logger.debug "Pushing daily sending report for user #{id}: #{conf_time} #{process_time} #{ok}"
       @statistics[:daily_sendings].tap do |daily_sendings|
         daily_sendings << { conf_time: conf_time, process_time: process_time, ok: ok, timestamp: timestamp }
         daily_sendings.shift [0, daily_sendings.size - 100].max
@@ -181,7 +185,7 @@ module Raspishika
     end
 
     def push_pair_sending_report(process_time:, ok: true, timestamp: Time.now)
-      User.logger&.debug "Pushing pair sending report for user #{id}: #{process_time} #{ok}"
+      logger.debug "Pushing pair sending report for user #{id}: #{process_time} #{ok}"
       @statistics[:pair_sendings].tap do |pair_sendings|
         pair_sendings << { process_time: process_time, ok: ok, timestamp: timestamp }
         pair_sendings.shift [0, pair_sendings.size - 100].max

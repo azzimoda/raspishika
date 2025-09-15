@@ -10,18 +10,20 @@ require 'timeout'
 require 'pp'
 require 'user_agent_randomizer'
 
+require_relative 'logger'
 require_relative 'cache'
 require_relative 'image_generator'
 
 module Raspishika
   class ScheduleParser
+    include GlobalLogger
+
     TIMEOUT = Config[:parser][:timeout]
     MAX_RETRIES = Config[:parser][:max_retries]
     LONG_CACHE_TIME = 30 * 24 * 60 * 60 # 1 month
     BASE_URL = 'https://mnokol.tyuiu.ru'
 
-    def initialize(logger: Logger.new($stdout))
-      @logger = logger
+    def initialize
       @thread = nil
       @browser = nil
       @ready = false
@@ -34,7 +36,7 @@ module Raspishika
       logger.debug "@schedule_scraper: #{@schedule_scraper.name}"
       logger.debug "@teacher_schedule_scraper: #{@teacher_schedule_scraper.name}"
     end
-    attr_accessor :logger, :ready
+    attr_accessor :ready
 
     def ready?
       @ready
@@ -171,7 +173,6 @@ module Raspishika
         base_url = "https://coworking.tyuiu.ru/shs/all_t/sh#{group_info[:zaochnoe] ? 'z' : ''}.php"
         url = "#{base_url}?action=group&union=0" \
               "&sid=#{group_info[:sid]}&gr=#{group_info[:gr]}&year=#{Time.now.year}&vr=1"
-        logger.debug "URL: #{url}"
 
         schedule =
           if (schedule = @schedule_scraper.call(url, times: 2, raise_on_failure: false))
@@ -307,7 +308,6 @@ module Raspishika
         base_url = 'https://coworking.tyuiu.ru/shs/all_t/sh.php'
         url = "#{base_url}?action=prep&prep=#{teacher_id}&vr=1&count=#{sids.size}" +
               sids.each_with_index.map { |sid, i| "&shed[#{i}]=#{sid}&union[#{i}]=0&year[#{i}]=#{Time.now.year}" }.join
-        logger.debug "URL: #{url}"
 
         @teacher_schedule_scraper.call(url, teacher: true).tap do |s|
           use_browser do |browser|
