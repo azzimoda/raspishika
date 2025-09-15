@@ -11,6 +11,10 @@ module Raspishika
       tg_id[0] != '-'
     end
 
+    def supergroup?
+      tg_id[0] == '-'
+    end
+
     def add_recent_teacher(name)
       recent_teachers.select { it.name.downcase == name.downcase }.each(&:destroy)
       recent_teachers.order(created_at: :asc).first.destroy if recent_teachers.count >= 6

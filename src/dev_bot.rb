@@ -92,13 +92,7 @@ module Raspishika
 
       bot.api.send_photo(chat_id: @admin_chat_id, photo: photo) if photo
       send_log(lines: log) if log
-      if backtrace
-        bot.api.send_message(
-          chat_id: @admin_chat_id,
-          text: "BACKTRACE:\n```\n#{backtrace}\n```",
-          parse_mode: 'Markdown'
-        )
-      end
+      send_backtrace backtrace if backtrace
       text = code ? "```\n#{text}\n```" : text
       bot.api.send_message(chat_id: @admin_chat_id, text: text, parse_mode: code ? 'Markdown' : nil)
     rescue Telegram::Bot::Exceptions::ResponseError => e
@@ -107,6 +101,19 @@ module Raspishika
     end
 
     private
+
+    def send_backtrace(backtrace)
+      bot.api.send_message(chat_id: @admin_chat_id, text: "BACKTRACE:\n```\n#{backtrace}\n```", parse_mode: 'Markdown')
+    rescue Telegram::Bot::Exceptions::ResponseError => e
+      case e.error_code
+      when 400
+        if e.message =~ /message is too long/
+          backtrace.lines.each_slice(42) do |part|
+            bot.api.send_sendmessage(chat_id: @admin_chat_id, text: "```\n#{part.join}\n```", parse_mode: 'Markdown')
+          end
+        end
+      end
+    end
 
     def handle_message(message)
       return unless message.chat.id == admin_chat_id
@@ -199,14 +206,14 @@ module Raspishika
 
       day_commands =
         statistics[:command_usages].transform_values { |v| v.select { Time.now - it.created_at <= 24 * 60 * 60 } }
-      active_chats = day_commands.values.flatten.map { it[:chat] }.uniq.size
+      active_chats = CommandUsage.where(created_at: (Time.now - 24 * 60 * 60)..Time.now).map(&:chat_id).uniq.size
       total_ok_commands = day_commands.values.sum { it.count { it.successful } }
       total_fail_commands = day_commands.values.sum { it.count { !it.successful } }
       schedule_commands = day_commands.slice(:week, :tomorrow, :left).values.sum(&:size)
 
       week_commands =
         statistics[:command_usages].transform_values { |v| v.select { Time.now - it.created_at <= 7 * 24 * 60 * 60 } }
-      active_chats_week = week_commands.values.flatten.map { it[:chat] }.uniq.size
+      active_chats_week = CommandUsage.where(created_at: (Time.now - 7 * 24 * 60 * 60)..Time.now).map(&:chat_id).uniq.size
       total_ok_commands_week = week_commands.values.sum { it.count { it.successful } }
       total_fail_commands_week = week_commands.values.sum { it.count { !it.successful } }
       schedule_commands_week = week_commands.slice(:week, :tomorrow, :left).values.sum(&:size)

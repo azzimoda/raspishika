@@ -158,7 +158,12 @@ module Raspishika
       end
 
       groups_data = fetch_all_groups fetch_departments
-      group_info = group_info.merge groups_data.dig group_info[:department], group_info[:group]
+      if (data = groups_data.dig(group_info[:department], group_info[:group]))
+        group_info = group_info.merge data
+      else
+        logger.error "Failed to get sid and gr by department and group names: #{group_info.inspect}"
+        return
+      end
 
       Cache.fetch :"schedule_#{group_info[:sid]}_#{group_info[:gr]}" do
         logger.info "Fetching schedule for #{group_info}"

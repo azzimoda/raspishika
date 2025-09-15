@@ -47,6 +47,17 @@ module Raspishika
     def send_daily_notificaton(chat)
       send_week_schedule nil, chat, Session[chat]
       logger.debug "Daily schedule sent to @#{chat.username} ##{chat.tg_id}"
+    rescue Telegram::Bot::Exceptions::ResponseError => e
+      case e.error_code
+      when 403 # Forbidden
+        logger.warn "Chat #{chat.tg_id} @#{chat.username} has blocked the bot :("
+      else
+        "Unhandled Telegram API error while sending daily notification: #{e.detailed_message}".tap do
+          report it, backtrace: backtrace.join("\n"), log: 20, code: true
+          logger.error it
+          logger.error e.backtrace.join("\n\t")
+        end
+      end
     rescue StandardError => e
       msg = "Error while sending daily schedule: #{e.detailed_message}"
       report msg, backtrace: e.backtrace.join("\n"), code: true
