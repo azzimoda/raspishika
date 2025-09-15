@@ -5,9 +5,12 @@ require 'rufus-scheduler'
 require 'telegram/bot'
 
 require_relative 'database'
+require_relative 'logger'
 
 module Raspishika
   class DevBot
+    include GlobalLogger
+
     MY_COMMANDS = [
       { command: 'chat', description: 'Get statistics for a chat with given chat ID of username' },
       { command: 'general', description: 'Get general statistics' },
@@ -20,10 +23,9 @@ module Raspishika
       { command: 'help', description: 'No help' }
     ].freeze
 
-    def initialize(main_bot:, logger: nil)
+    def initialize(main_bot:)
       @main_bot = main_bot
 
-      @logger = logger || ::Logger.new($stderr, level: ::Logger::ERROR)
       @token = Config[:dev_bot][:token]
       @admin_chat_id = Config[:dev_bot][:admin_chat_id]
       logger.info('DevBot') { "Admin chat ID: #{@admin_chat_id.inspect}" }
@@ -36,7 +38,7 @@ module Raspishika
       logger.info('DevBot') { "Token: #{@token.inspect}" }
       logger.info('DevBot') { 'Dev bot is disabled' } unless @run
     end
-    attr_accessor :logger, :bot
+    attr_accessor :bot
     attr_reader :admin_chat_id
 
     def run

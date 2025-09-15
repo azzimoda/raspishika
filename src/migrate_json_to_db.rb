@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require 'logger'
-require 'json'
 
 require_relative 'database'
 Dir[File.expand_path('./models/*.rb', __dir__)].each { require it }
@@ -9,14 +8,15 @@ require_relative 'user'
 
 module Raspishika
   class JsonToDbMigrator
+    include GlobalLogger
+
     def initialize(file = User::USERS_FILE)
-      User.logger = Logger.new $stdout
       User.load file
       @json_data = User.users
     end
 
     def migrate
-      puts 'Migrating data from JSON to DB...'
+      logger.info 'Migrating data from JSON to DB...'
 
       @json_data.each { |chat_id, chat_data| migrate_chat chat_id, chat_data }
     end
@@ -38,9 +38,9 @@ module Raspishika
       if chat.save
         migrate_recent_teacher chat, chat_data.recent_teachers
         migrate_command_usages chat, chat_data.statistics[:last_commands]
-        puts "Chat #{chat_id} migrated successfully"
+        logger.info "Chat #{chat_id} migrated successfully"
       else
-        puts "Chat #{chat_id} migration failed: #{chat.errors.full_messages}"
+        logger.error "Chat #{chat_id} migration failed: #{chat.errors.full_messages}"
       end
     end
 

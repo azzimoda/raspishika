@@ -8,8 +8,6 @@ require_relative 'database'
 
 module Raspishika
   def self.notify(message, private_only: false)
-    logger = ::Logger.new $stderr
-
     chats = Chat.all
 
     logger.info "Sending notification to #{chats.count} chats..."

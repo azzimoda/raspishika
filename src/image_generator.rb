@@ -1,22 +1,19 @@
 # frozen_string_literal: true
 
 require_relative 'config'
+require_relative 'logger'
 
 module Raspishika
   module ImageGenerator
+    extend GlobalLogger
+
     IMAGE_WIDTH = Config[:image_generator][:width]
     IMAGE_HEIGHT = Config[:image_generator][:height]
     CACHE_DIR = File.expand_path('../data/cache', __dir__).freeze
     FileUtils.mkdir_p CACHE_DIR
 
-    @logger = nil
-
-    class << self
-      attr_accessor :logger
-    end
-
     def self.generate(page, schedule, group_info: nil, teacher_id: nil, teacher_name: nil)
-      logger&.info "Generating image for #{group_info || { teacher_name: teacher_name, teacher_id: teacher_id }}"
+      logger.info "Generating image for #{group_info || { teacher_name: teacher_name, teacher_id: teacher_id }}"
 
       html = generate_html(schedule, group_info, teacher_name)
       file_path = File.expand_path('table_template.html', CACHE_DIR)
@@ -29,7 +26,7 @@ module Raspishika
       output_path = image_path(group_info: group_info, teacher_id: teacher_id)
       page.screenshot(path: output_path, timeout: ScheduleParser::TIMEOUT * 1000)
 
-      logger&.debug "Screenshot saved to #{output_path}"
+      logger.debug "Screenshot saved to #{output_path}"
     end
 
     def self.image_path(group_info: nil, teacher_id: nil)

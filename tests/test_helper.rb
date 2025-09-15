@@ -13,7 +13,7 @@ def initialize_bot(**options)
 end
 
 def initialize_parser
-  parser = Raspishika::ScheduleParser.new logger: Logger.new($stdout)
+  parser = Raspishika::ScheduleParser.new
   parser.initialize_browser_thread
   sleep 0.1 until parser.ready?
   parser
