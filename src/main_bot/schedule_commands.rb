@@ -32,7 +32,12 @@ module Raspishika
       make_photo = -> { Faraday::UploadIO.new(file_path, 'image/png') }
       reply_markup = default_reply_markup chat.tg_id
 
-      send_photo(chat_id: chat.tg_id, photo: make_photo.call, reply_markup: reply_markup)
+      send_photo(
+        chat_id: chat.tg_id,
+        photo: make_photo.call,
+        reply_markup: { inline_keyboard: make_update_inline_keyboard('update_week', group_info[:group]) }.to_json
+      )
+      send_message(chat_id: chat.tg_id, text: "Расписание группы #{group_info[:group]}", reply_markup: reply_markup)
       unless schedule
         bot.api.send_message(
           chat_id: chat.tg_id,
@@ -160,7 +165,6 @@ module Raspishika
       logger.debug "Teacher name: #{teacher_name.inspect}"
       teachers = parser.fetch_teachers
       teacher_id = teachers[teacher_name]
-      logger.debug "Teacher id: #{teacher_id.inspect}"
       schedule = parser.fetch_teacher_schedule teacher_id, teacher_name
 
       file_path = ImageGenerator.image_path teacher_id: teacher_id
@@ -171,7 +175,12 @@ module Raspishika
       session.state = Session::State::DEFAULT
       session.save
 
-      send_photo chat_id: chat.tg_id, photo: make_photo.call, reply_markup: reply_markup
+      send_photo(
+        chat_id: chat.tg_id,
+        photo: make_photo.call,
+        reply_markup: { inline_keyboard: make_update_inline_keyboard('update_teacher', teacher_id) }.to_json
+      )
+      send_message(chat_id: chat.tg_id, text: "Расписание преподавателя #{teacher_name}", reply_markup: reply_markup)
       unless schedule
         bot.api.send_message(
           chat_id: chat.tg_id,

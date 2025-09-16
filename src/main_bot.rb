@@ -12,7 +12,7 @@ require_relative 'dev_bot'
 require_relative 'database'
 require_relative 'session'
 
-require_relative 'main_bot/debug_commands'
+require_relative 'main_bot/callback_queries'
 require_relative 'main_bot/general_commands'
 require_relative 'main_bot/config_commands'
 require_relative 'main_bot/schedule_commands'
@@ -91,11 +91,8 @@ module Raspishika
       logger.info 'Starting bot...'
       Telegram::Bot::Client.run(@token) do |bot|
         @bot = bot
-
         prepare_before_listen
-
         report 'Bot started.'
-
         run_listener
       end
     rescue Interrupt
@@ -103,18 +100,20 @@ module Raspishika
       logger.warn 'Keyboard interruption'
     rescue StandardError => e
       puts
-      logger.fatal 'Unhandled error in the main method (#run):'
-      logger.fatal e.detailed_message
-      logger.fatal e.backtrace.join "\n"
+      'Unhandled error in the main method (#run):'.tap do |msg|
+        report msg, backtrace: e.backtrace.join("\n"), log: 20, code: true
+        logger.fatal msg
+        logger.fatal e.detailed_message
+        logger.fatal e.backtrace.join "\n\t"
+      end
     ensure
       shutdown
     end
 
     # Schedules a daily database backup at midnight using a cron job.
     def schedule_db_backup
-      @scheduler.cron '0 0 * * *' do
-        backup_database if @run
-      end
+      @scheduler.cron('0 0 * * *') { backup_database if @run }
+      logger.info 'Database backup scheduled'
     end
 
     private
@@ -131,7 +130,6 @@ module Raspishika
 
       schedule_pair_sending
       schedule_db_backup
-
       @sending_thread = Thread.new(self, &:daily_sending_loop)
     end
 
@@ -168,30 +166,13 @@ module Raspishika
       @thread_pool.kill if @thread_pool.running?
     end
 
-    def debug_command(message, user)
-      return unless Cache[:bot][:debug_commands]
-
-      debug_command_name = message.text.split(' ').last
-      logger.info "Calling test #{debug_command_name}..."
-      unless DebugCommands.respond_to? debug_command_name
-        logger.warn "Test #{debug_command_name} not found"
-        send_message(
-          chat_id: message.chat.id,
-          text: "Тест `#{debug_command_name}` не найден.\n\nДоступные тесты: #{DebugCommands.methods.join(', ')}",
-          reply_markup: default_reply_markup(user.id)
-        )
-        return
-      end
-
-      DebugCommands.send(debug_command_name, bot: self, user: user, message: message)
-    end
-
     def report(...)
       @dev_bot.report(...)
     end
 
     def handle_message(message)
       case message
+      when Telegram::Bot::Types::CallbackQuery then handle_callback_query message
       when Telegram::Bot::Types::Message then handle_text_message message
       else logger.debug "Unhandled message type: #{message.class}"
       end
@@ -203,7 +184,7 @@ module Raspishika
 
       short_text = message.text.size > 32 ? "#{message.text[0...32]}…" : message.text
       if message.chat.type == 'private'
-        logger.debug("[#{message.chat.id}] @#{message.from.username} #{message.from.full_name} => #{short_text.inspect}")
+        logger.debug "[#{message.chat.id}] @#{message.from.username} #{message.from.full_name} => #{short_text.inspect}"
       else
         logger.debug("[#{message.chat.id} @#{message.chat.username} #{message.chat.title}]" \
                      " @#{message.from.username} #{message.from.full_name} => #{short_text.inspect}")
@@ -236,19 +217,13 @@ module Raspishika
       end
 
       case text
-      when '/start'
-        handle_command(message, chat, text, ok_stats: false) { start_message message, chat, session }
-      when '/help'
-        handle_command(message, chat, text) { help_message message, chat, session }
-      when '/stop'
-        handle_command(message, chat, text, ok_stats: false) { stop message, chat, session }
+      when '/start' then handle_command(message, chat, text, ok_stats: false) { start_message message, chat, session }
+      when '/help' then handle_command(message, chat, text) { help_message message, chat, session }
+      when '/stop' then handle_command(message, chat, text, ok_stats: false) { stop message, chat, session }
 
-      when '/week'
-        handle_command(message, chat, text) { send_week_schedule message, chat, session }
-      when '/tomorrow'
-        handle_command(message, chat, text) { send_tomorrow_schedule message, chat, session }
-      when '/left'
-        handle_command(message, chat, text) { send_left_schedule message, chat, session }
+      when '/week' then handle_command(message, chat, text) { send_week_schedule message, chat, session }
+      when '/tomorrow' then handle_command(message, chat, text) { send_tomorrow_schedule message, chat, session }
+      when '/left' then handle_command(message, chat, text) { send_left_schedule message, chat, session }
 
       when '/set_group'
         handle_command(message, chat, text, ok_stats: false) { configure_group message, chat, session }
@@ -256,12 +231,9 @@ module Raspishika
         handle_command(message, chat, text, ok_stats: false) { configure_daily_sending message, chat, session }
       when '/daily_sending_off'
         handle_command(message, chat, text) { disable_daily_sending message, chat, session }
-      when '/pair_sending_on'
-        handle_command(message, chat, text) { enable_pair_sending message, chat, session }
-      when '/pair_sending_off'
-        handle_command(message, chat, text) { disable_pair_sending message, chat, session }
-      when '/cancel', 'отмена'
-        handle_command(message, chat, '/cancel') { cancel_action message, chat, session }
+      when '/pair_sending_on' then handle_command(message, chat, text) { enable_pair_sending message, chat, session }
+      when '/pair_sending_off' then handle_command(message, chat, text) { disable_pair_sending message, chat, session }
+      when '/cancel', 'отмена' then handle_command(message, chat, '/cancel') { cancel_action message, chat, session }
 
       when ->(t) { session.default? && t == LABELS[:week].downcase }
         handle_command(message, chat, '/week') { send_week_schedule message, chat, session }
@@ -339,7 +311,7 @@ module Raspishika
     end
 
     def handle_command(message, chat, command_name, ok_stats: true)
-      # Catch possible fail from methods `send_week_schedule` and `send_teacher_schedule`
+      # Catch possible fail from methods `send_week_schedule` and `send_teacher_schedule`.
       failed = catch :fail do
         yield
         chat.log_command_usage(command_name, true, Time.now - Time.at(message.date)) if ok_stats
@@ -350,7 +322,7 @@ module Raspishika
     rescue Telegram::Bot::Exceptions::ResponseError => e
       handle_telegram_api_error e, message
     rescue StandardError => e
-      log_error message, e
+      log_error chat, e, place: "#handle_command(command_name=#{command_name})"
       chat.log_command_usage(command_name, false, Time.now - Time.at(message.date))
       send_message(
         chat_id: message.chat.id,
@@ -364,9 +336,9 @@ module Raspishika
     def handle_telegram_api_error(err, message)
       case err.error_code
       when 403 # Forbidden: bot was blocked by the user / kicked from the group chat
-        msg =
-          "Bot was blocked in #{message.chat.type} ##{message.chat.id} @#{message.chat.username} #{message.chat.title}"
-        report msg
+        msg = "Bot was blocked in #{message.chat.type} chat" \
+              " ##{message.chat.id} @#{message.chat.username&.escape_markdown} #{message.chat.title&.escape_markdown}"
+        report msg, markdown: true
         logger.warn msg
       when 429 # Too Many Requests
         retry_after = begin err.response['retry-after'].to_i + 10
@@ -375,19 +347,20 @@ module Raspishika
         logger.warn "Rate limited! Sleeping for #{retry_after} seconds..."
         sleep retry_after
       else
-        report "Telegram API error: #{err.detailed_message}", backtrace: err.backtrace.join("\n"), log: 20, code: true
-        logger.error "Unhandled Telegram API error: #{err.detailed_message}"
+        msg = "Unhandled Telegram API error: #{err.detailed_message}"
+        report msg, backtrace: err.backtrace.join("\n"), log: 20, code: true
+        logger.error msg
         logger.error err.backtrace.join("\n\t")
         sleep 10
       end
     end
 
-    def log_error(message, error)
-      msgs = ["Unhandled error in `#handle_text_message`: #{error.detailed_message}",
-              "Message from #{message.from.full_name} @#{message.from.username} ##{message.from.id}"]
-      report("`#{msgs.join("\n")}`", backtrace: error.backtrace.join("\n"), log: 20)
+    def log_error(chat, error, place: nil)
+      msgs = ["Unhandled error#{" in #{place}" if place}: #{error.detailed_message}",
+              "Message from chat @#{chat.username} ##{chat.id}"]
+      report(msgs.join("\n"), backtrace: error.backtrace.join("\n"), log: 20, code: true)
       msgs.each { logger.error it }
-      logger.debug "Backtrace: #{error.backtrace.join("\n\t")}"
+      logger.error error.backtrace.join("\n\t")
     end
 
     def send_photo(*args, **kwargs)
