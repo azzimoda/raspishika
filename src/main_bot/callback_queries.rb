@@ -17,12 +17,9 @@ module Raspishika
       chat = Chat.find_by tg_id: query.message.chat.id
 
       case args[0]
-      when 'update_week'
-        handle_command(query.message, chat, '<udpate_week>') { update_week_schedule(query, chat, *args[1..]) }
-      when 'update_teacher'
-        handle_command(query.message, chat, '<update_teacher>') { update_teacher_schedule(query, chat, *args[1..]) }
-      else
-        logger.warn "Unexpected callback query data: #{query.data.inspect}"
+      when 'update_week' then update_week_schedule(query, chat, *args[1..])
+      when 'update_teacher' then update_teacher_schedule(query, chat, *args[1..])
+      else logger.warn "Unexpected callback query data: #{query.data.inspect}"
       end
     end
 
