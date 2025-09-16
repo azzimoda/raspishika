@@ -306,7 +306,6 @@ module Raspishika
             send_message(chat_id: message.chat.id, text: 'Неправильный формат времени, попробуйте ещё раз')
           end
         end
-      when %r{^/debug\s+\w+$} then debug_command message, chat
       end
     end
 

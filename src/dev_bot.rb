@@ -129,7 +129,7 @@ module Raspishika
       when '/groups' then send_groups
       when '/config' then send_config_statistics
       when '/commands' then send_commands_statistics
-      # TODO: /commands DAYS
+      when %r{/commands\s+(\d+)} then send_commands_statistics days: Regexp.last_match(1).to_i
       when '/new_chats' then send_new_chats
       when %r{/new_chats\s+(\d+)} then send_new_chats days: Regexp.last_match(1).to_i
       when %r{/chat\s+(.+)} then send_chat_statistics Regexp.last_match(1)
@@ -304,12 +304,16 @@ module Raspishika
       bot.api.send_message(chat_id: admin_chat_id, text: text, parse_mode: 'Markdown')
     end
 
-    def send_commands_statistics
-      statistics = collect_statistics
+    def send_commands_statistics(days: 7)
+      command_usages =
+        if days.zero?
+          CommandUsage.all
+        else
+          CommandUsage.where(created_at: (Time.now - days * 24 * 60 * 60)..Time.now)
+        end
+      command_usages = command_usages.group_by(&:command).sort_by(&:first)
 
-      text = statistics[:command_usages].map do |k, v|
-        "`#{k.to_s.ljust(24)} => #{v.size.to_s.rjust(5)}`"
-      end.join("\n")
+      text = command_usages.map { |k, u| "`#{k.to_s.ljust(20)} => #{u.size.to_s.rjust(5)}`" }.join("\n")
       bot.api.send_message(chat_id: admin_chat_id, text: text, parse_mode: 'Markdown')
     end
 
@@ -318,7 +322,7 @@ module Raspishika
         if id_or_username =~ /-?\d+/
           Chat.where(tg_id: id_or_username).first
         else
-          Chat.where('LOWER(username) = ?', id_or_username).first
+          Chat.where('LOWER(username) = ?', id_or_username.sub('@', '')).first
         end
 
       if chat_data.nil?
@@ -327,8 +331,9 @@ module Raspishika
       end
 
       chat = @main_bot.bot.api.get_chat chat_id: chat_data.tg_id
+      full_name = "#{chat.first_name&.escape_markdown} #{chat.last_name&.escape_markdown}".strip
       text = <<~MARKDOWN
-        *Chat:* #{chat.first_name} #{chat.last_name} #{chat.title} @#{chat.username} ##{chat.id}
+        *Chat:* #{full_name} #{chat.title&.escape_markdown} @#{chat.username&.escape_markdown} ##{chat.id}
         *Department:* #{chat_data.department}
         *Group:* #{chat_data.group}
         *Daily sending:* #{chat_data.daily_sending_time}

@@ -13,6 +13,8 @@ module Raspishika
     FileUtils.mkdir_p CACHE_DIR
 
     def self.generate(page, schedule, group_info: nil, teacher_id: nil, teacher_name: nil)
+      raise ArgumentError, 'Schedule is empty' unless schedule&.any?
+
       logger.info "Generating image for #{group_info || { teacher_name: teacher_name, teacher_id: teacher_id }}"
 
       html = generate_html(schedule, group_info, teacher_name)
@@ -36,6 +38,8 @@ module Raspishika
     end
 
     def self.generate_html(schedule, group_info, teacher_name)
+      raise ArgumentError, 'Schedule is empty' unless schedule&.any?
+
       group, department = group_info&.then { [it[:group], it[:department]] }
       header = teacher_name ? "Расписание преподавателя — #{teacher_name}" : "Расписание группы #{group} — #{department}"
       <<~HTML

@@ -309,13 +309,15 @@ module Raspishika
         url = "#{base_url}?action=prep&prep=#{teacher_id}&vr=1&count=#{sids.size}" +
               sids.each_with_index.map { |sid, i| "&shed[#{i}]=#{sid}&union[#{i}]=0&year[#{i}]=#{Time.now.year}" }.join
 
-        @teacher_schedule_scraper.call(url, teacher: true).tap do |s|
-          use_browser do |browser|
-            page = browser.new_page
-            ImageGenerator.generate page, s, teacher_id: teacher_id, teacher_name: teacher_name
-            page.close
-          end
+        schedule = @teacher_schedule_scraper.call url, teacher: true
+        raise "Failed to scrape teacher schedule: #{teacher_id}, #{teacher_name}" unless schedule
+
+        use_browser do |browser|
+          page = browser.new_page
+          ImageGenerator.generate page, schedule, teacher_id: teacher_id, teacher_name: teacher_name
+          page.close
         end
+        schedule
       end
     end
 
