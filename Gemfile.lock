@@ -166,7 +166,6 @@ PLATFORMS
 
 DEPENDENCIES
   activerecord (~> 8.0)
-  base64 (~> 0.2.0)
   fuzzy_match (~> 2.1)
   minitest (~> 5.25)
   nokogiri (~> 1.18.8)
