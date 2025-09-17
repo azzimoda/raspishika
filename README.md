@@ -7,14 +7,15 @@ Telegram-бот для удобного расписания МПК ТИУ.
 ### Build
 
 ```bash
-docker build -t ruby-mpk-bot .
+docker build -t raspishika-bot .
 ```
 
 ### Run
 
+Edit `config/config.yml` and run:
+
 ```bash
 docker run -it --rm \
-  -v ./data:/app/data \
-  -e TELEGRAM_BOT_TOKEN=your_bot_token \
-  ruby-mpk-bot
+  -v ./data:/app/data -v ./config:/app/config \
+  raspishika-bot
 ```
