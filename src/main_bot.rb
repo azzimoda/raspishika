@@ -92,28 +92,11 @@ module Raspishika
       Telegram::Bot::Client.run(@token) do |bot|
         @bot = bot
         prepare_before_listen
-        report 'Bot started.'
         run_listener
       end
-    rescue Interrupt
-      puts
-      logger.warn 'Keyboard interruption'
-    rescue StandardError => e
-      puts
-      'Unhandled error in the main method (#run):'.tap do |msg|
-        report msg, backtrace: e.backtrace.join("\n"), log: 20, code: true
-        logger.fatal msg
-        logger.fatal e.detailed_message
-        logger.fatal e.backtrace.join "\n\t"
-      end
-    ensure
-      shutdown
-    end
-
-    # Schedules a daily database backup at midnight using a cron job.
-    def schedule_db_backup
-      @scheduler.cron('0 0 * * *') { backup_database if @run }
-      logger.info 'Database backup scheduled'
+    rescue Interrupt then logger.warn 'Keyboard interruption'
+    rescue StandardError => e then log_fatal e
+    ensure shutdown
     end
 
     private
@@ -125,28 +108,33 @@ module Raspishika
 
       @dev_bot_thread = Thread.new(@dev_bot, &:run)
 
-      @parser.initialize_browser_thread
-      sleep 0.1 until !Config[:parser][:browser][:threaded] || @parser.ready?
+      if Config[:parser][:browser][:threaded]
+        @parser.initialize_browser_thread
+        sleep 0.1 until @parser.ready?
+      end
 
       schedule_pair_sending
       schedule_db_backup
       @sending_thread = Thread.new(self, &:daily_sending_loop)
     end
 
+    # Schedules a daily database backup at midnight using a cron job.
+    def schedule_db_backup
+      @scheduler.cron('0 0 * * *') { backup_database if @run }
+      logger.info 'Database backup scheduled'
+    end
+
     def run_listener
       logger.info 'Starting bot listener...'
       bot.listen { |message| handle_message message }
     rescue StandardError => e
-      "Unhandled error in `bot.listen`: #{e.detailed_message}".tap do |msg|
-        report(msg, backtrace: e.backtrace.join("\n"), log: 20, code: true)
-        logger.error msg
-      end
-      logger.error "Backtrace: #{e.backtrace.join("\n\t")}"
+      log_error nil, e, place: '#run_listener'
       logger.error "Retrying in 10 seconds... (#{@retries + 1}/#{MAX_RETRIES})"
 
-      sleep 10
-      @retries += 1
-      retry if @retries < MAX_RETRIES
+      if (@retries += 1) < MAX_RETRIES
+        sleep 10
+        retry
+      end
       'Reached maximum retries! Stopping bot...'.tap do |msg|
         report "FATAL ERROR: #{msg}", log: 20, code: true
         logger.fatal msg
@@ -183,39 +171,29 @@ module Raspishika
       return unless message.text
 
       short_text = message.text.size > 32 ? "#{message.text[0...32]}…" : message.text
-      if message.chat.type == 'private'
-        logger.debug "[#{message.chat.id}] @#{message.from.username} #{message.from.full_name} => #{short_text.inspect}"
+      tg_chat = message.chat
+      from = message.from
+      if tg_chat.type == 'private'
+        logger.debug "[#{tg_chat.id}] @#{from.username} #{from.full_name} => #{short_text.inspect}"
       else
-        logger.debug("[#{message.chat.id} @#{message.chat.username} #{message.chat.title}]" \
-                     " @#{message.from.username} #{message.from.full_name} => #{short_text.inspect}")
+        logger.debug("[#{tg_chat.id} @#{tg_chat.username} #{tg_chat.title}]" \
+                     " @#{from.username} #{from.full_name} => #{short_text.inspect}")
       end
 
-      chat = Chat.find_by tg_id: message.chat.id
+      chat = Chat.find_by tg_id: tg_chat.id
       unless chat
-        chat = Chat.create! tg_id: message.chat.id, username: message.chat.username
-        msg =
-          if message.chat.type == 'private'
-            "New private chat: [#{message.chat.id}] @#{message.from.username&.escape_markdown}" \
-            " #{message.from.full_name&.escape_markdown}\n" \
-            "`/chat #{message.chat.id}`"
-          else
-            "New group chat: [#{message.chat.id}] @#{message.chat.username&.escape_markdown}" \
-            " #{message.chat.title&.escape_markdown} \n" \
-            "`/chat #{message.chat.id}`"
-          end
-        report msg, markdown: true
-        logger.debug msg
+        chat = Chat.create! tg_id: tg_chat.id, username: tg_chat.username
+        report_new_chat chat
       end
       session = Session[chat]
 
-      text = message.text.downcase.then do
-        if it.end_with?("@#{@username.downcase}")
-          it.match(/^(.*)@#{@username.downcase}$/).match(1)
-        else
-          it
-        end
-      end
+      text = message.text.downcase.sub(/@#{@username.downcase}/, '')
+      return if handle_command_message message, text, chat, session
 
+      handle_button_message message, text, chat, session
+    end
+
+    def handle_command_message(message, text, chat, session)
       case text
       when '/start' then handle_command(message, chat, text, ok_stats: false) { start_message message, chat, session }
       when '/help' then handle_command(message, chat, text) { help_message message, chat, session }
@@ -233,7 +211,13 @@ module Raspishika
         handle_command(message, chat, text) { disable_daily_sending message, chat, session }
       when '/pair_sending_on' then handle_command(message, chat, text) { enable_pair_sending message, chat, session }
       when '/pair_sending_off' then handle_command(message, chat, text) { disable_pair_sending message, chat, session }
-      when '/cancel', 'отмена' then handle_command(message, chat, '/cancel') { cancel_action message, chat, session }
+      when '/cancel' then handle_command(message, chat, '/cancel') { cancel_action message, chat, session }
+      end
+    end
+
+    def handle_button_message(message, text, chat, session)
+      case text
+      when 'отмена' then handle_command(message, chat, '/cancel') { cancel_action message, chat, session }
 
       when ->(t) { session.default? && t == LABELS[:week].downcase }
         handle_command(message, chat, '/week') { send_week_schedule message, chat, session }
@@ -309,6 +293,17 @@ module Raspishika
       end
     end
 
+    def report_new_chat(message)
+      chat = message.chat
+      from = message.from
+      chat_id = chat.id
+      username = (chat.type == 'private' ? from : chat).username&.escape_markdown
+      title = (chat.type == 'private' ? from.full_name : chat.title).escape_markdown
+      report "New #{chat.type} chat: [#{chat_id}] @#{username} #{title}"
+      report "`/chat #{chat_id}`", markdown: true
+      logger.debug msg
+    end
+
     def handle_command(message, chat, command_name, ok_stats: true)
       # Catch possible fail from methods `send_week_schedule` and `send_teacher_schedule`.
       failed = catch :fail do
@@ -346,20 +341,27 @@ module Raspishika
         logger.warn "Rate limited! Sleeping for #{retry_after} seconds..."
         sleep retry_after
       else
-        msg = "Unhandled Telegram API error: #{err.detailed_message}"
-        report msg, backtrace: err.backtrace.join("\n"), log: 20, code: true
-        logger.error msg
-        logger.error err.backtrace.join("\n\t")
+        log_error nil, err, place: '#handle_telegram_api_error'
         sleep 10
       end
     end
 
     def log_error(chat, error, place: nil)
-      msgs = ["Unhandled error#{" in #{place}" if place}: #{error.detailed_message}",
-              "Message from chat @#{chat.username} ##{chat.id}"]
+      msgs = ["Unhandled error#{" in #{place}" if place}: #{error.detailed_message}"]
+      msgs << "Message from chat @#{chat.username} ##{chat.id}" if chat
       report(msgs.join("\n"), backtrace: error.backtrace.join("\n"), log: 20, code: true)
       msgs.each { logger.error it }
       logger.error error.backtrace.join("\n\t")
+    end
+
+    def log_fatal(err)
+      puts
+      'Unhandled error in the main method (#run):'.tap do |msg|
+        report msg, backtrace: err.backtrace.join("\n"), log: 20, code: true
+        logger.fatal msg
+        logger.fatal err.detailed_message
+        logger.fatal err.backtrace.join "\n\t"
+      end
     end
 
     def send_photo(*args, **kwargs)
@@ -368,16 +370,12 @@ module Raspishika
         bot.api.send_photo(*args, **kwargs)
       rescue Net::ReadTimeout, Net::OpenTimeout, Faraday::ConnectionFailed, Faraday::TimeoutError => e
         logger.error "Failed to send photo to ##{kwargs[:chat_id]}: #{e.detailed_message}"
-        photo_sending_retries += 1
-        if photo_sending_retries < 3
+        if (photo_sending_retries += 1) < 3
           logger.info "Retrying... #{photo_sending_retries}/3"
           retry
         end
-        send_message(
-          chat_id: kwargs[:chat_id],
-          text: 'Произошла ошибка, попробуйте позже.',
-          reply_markup: default_reply_markup(kwargs[:chat_id])
-        )
+        send_message(chat_id: kwargs[:chat_id], text: 'Произошла ошибка, попробуйте позже.',
+                     reply_markup: default_reply_markup(kwargs[:chat_id]))
       end
     end
 

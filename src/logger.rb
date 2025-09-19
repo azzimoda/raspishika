@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require 'fileutils'
 require 'logger'
 
 module Raspishika
@@ -24,7 +25,10 @@ module Raspishika
         end
 
       @stderr_logger = ::Logger.new($stderr, level: level)
-      @file_logger = ::Logger.new(@log_file, level: level) if @log_file
+      return unless @log_file
+
+      FileUtils.mkdir_p File.dirname @log_file
+      @file_logger = ::Logger.new @log_file, level: level
     end
 
     def delete_old_logs
@@ -32,34 +36,11 @@ module Raspishika
       files.sort_by { File.mtime it }.reverse.drop(100).each { File.delete it }
     end
 
-    def debug(msg, &block)
-      @stderr_logger.debug(msg, &block)
-      @file_logger&.debug(msg, &block)
-    end
-
-    def info(msg, &block)
-      @stderr_logger.info(msg, &block)
-      @file_logger&.info(msg, &block)
-    end
-
-    def warn(msg, &block)
-      @stderr_logger.warn(msg, &block)
-      @file_logger&.warn(msg, &block)
-    end
-
-    def error(msg, &block)
-      @stderr_logger.error(msg, &block)
-      @file_logger&.error(msg, &block)
-    end
-
-    def fatal(msg, &block)
-      @stderr_logger.fatal(msg, &block)
-      @file_logger&.fatal(msg, &block)
-    end
-
-    def unknown(msg, &block)
-      @stderr_logger.unknown(msg, &block)
-      @file_logger&.unknown(msg, &block)
+    %w[debug info warn error fatal unknown].each do |level|
+      define_method level do |progname = nil, &block|
+        @stderr_logger.send(level, progname, &block)
+        @file_logger&.send(level, progname, &block)
+      end
     end
   end
 

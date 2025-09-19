@@ -25,9 +25,9 @@ module Raspishika
 
     def update_week_schedule(query, chat, group)
       start_time = Time.now
-      logger.debug "Updating group schedule for chat ##{chat.tg_id} @#{chat.username}: #{group}"
+      logger.debug "Updating schedule of group #{group}"
 
-      deps = parser.fetch_all_groups parser.fetch_departments
+      deps = parser.fetch_all_groups
       department = deps.find { |_, g| g.key? group }.first
       group_info = { department: department, group: group }
       schedule = parser.fetch_schedule group_info
@@ -68,7 +68,7 @@ module Raspishika
     def update_teacher_schedule(query, chat, teacher_id)
       start_time = Time.now
       teacher_name = parser.fetch_teachers.find { |_, v| v == teacher_id }.first
-      logger.debug "Updating teacher schedule for chat ##{chat.tg_id} @#{chat.username}: #{teacher_name}"
+      logger.debug "Updating teacher schedule of teacher #{teacher_name}"
 
       schedule = parser.fetch_teacher_schedule teacher_id, teacher_name
       file_path = ImageGenerator.image_path teacher_id: teacher_id

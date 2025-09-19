@@ -46,19 +46,19 @@ module Raspishika
     private
 
     def start_message(_message, chat, _session)
-      bot.api.send_message(chat_id: chat.tg_id, text: START_MESSAGE, reply_markup: default_reply_markup(chat.tg_id))
+      send_message(chat_id: chat.tg_id, text: START_MESSAGE, reply_markup: default_reply_markup(chat.tg_id))
     end
 
     def help_message(_message, chat, session)
-      session.state = Session::State::DEFAULT
+      session.default!
       session.save
-      bot.api.send_message(chat_id: chat.tg_id, text: HELP_MESSAGE, reply_markup: default_reply_markup(chat.tg_id))
+      send_message(chat_id: chat.tg_id, text: HELP_MESSAGE, reply_markup: default_reply_markup(chat.tg_id))
     end
 
     def stop(message, chat, _session)
       chat.destroy
 
-      bot.api.send_message(
+      send_message(
         chat_id: message.chat.id,
         text: "Ваши данные были удалены, и вы больше не будете получать рассылки от этого бота.\n" \
               'Спасибо за использование!',

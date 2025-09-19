@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            font-size: 12px;
+            margin: 20px;
+        }
+
+        table#main_table {
+            border-collapse: collapse;
+            table-layout: fixed;
+            width: 100%;
+        }
+
+        th,
+        td {
+            border: 1px solid gray;
+            padding: 4px;
+            text-align: center;
+            min-height: 70px;
+        }
+
+        th,
+        td.side_column_number,
+        td.side_column_time {
+            background-color: #f2f2f2;
+        }
+
+        .side_column_number {
+            width: 1%;
+        }
+
+        .side_column_time {
+            width: 3%;
+        }
+
+        .replaced {
+            background-color: #fae4d7;
+        }
+
+        .title,
+        .discipline,
+        .classroom {
+            font-weight: bold;
+            word-break: break-word;
+        }
+
+        .event {
+            background-color: #fa8072;
+        }
+
+        .iga {
+            background-color: #cfffd9
+        }
+
+        .practice {
+            background-color: #c0d5fa;
+        }
+
+        .exam {
+            background-color: #f5d0d0;
+        }
+
+        .consultation {
+            background-color: #c9dec3;
+        }
+
+        .session {
+            background-color: #fdffe0
+        }
+
+        .example {
+            border: 1px solid gray;
+            padding: 2px 4px;
+        }
+    </style>
+</head>
+
+<body>
+    <h2>HEADER</h2>
+    <table id='main_table'>
+        <thead>
+            <tr>
+                <th class="side_column_number">№</th>
+                <th class="side_column_time">Время</th>
+                HEAD_ROW
+            </tr>
+        </thead>
+        <tbody>
+            TABLE_BODY
+        </tbody>
+    </table>
+    <p>
+        <b>Условные обозначения:</b>
+        <span class='example replaced'>замена</span>;
+        <span class='example session'>сессия</span>;
+        <span class='example event'>праздничный день</span>;
+        <span class='example practice'>практика</span>;
+        <span class='example iga'>ИГА</span>;
+        <span class='example exam'>экзамен/зачёт</span>;
+        <span class='example consultation'>консультация</span>;
+        <!-- <span class='example holiday'>каникулы</span>; -->
+    </p>
+    <p>Сгенерировано в TIMESTAMP</p>
+</body>
+
+</html>

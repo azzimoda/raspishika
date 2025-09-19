@@ -49,12 +49,32 @@ module Raspishika
       state == State::DEFAULT
     end
 
+    def default!
+      @state = State::DEFAULT
+    end
+
     def selecting_department?
       [State::SELECTING_DEPARTMENT, State::SELECTING_DEPARTMENT_QUICK].include? state
     end
 
+    def selecting_department!
+      @state = State::SELECTING_DEPARTMENT
+    end
+
+    def selecting_department_quick!
+      @state = State::SELECTING_DEPARTMENT_QUICK
+    end
+
     def selecting_group?
       [State::SELECTING_GROUP, State::SELECTING_GROUP_QUICK].include? state
+    end
+
+    def selecting_group!
+      @state = State::SELECTING_GROUP
+    end
+
+    def selecting_group_quick!
+      @state = State::SELECTING_GROUP_QUICK
     end
 
     def selecting_quick?
@@ -65,16 +85,32 @@ module Raspishika
       state == State::SELECTING_QUICK_SCHEDULE
     end
 
+    def quick_schedule!
+      @state = State::SELECTING_QUICK_SCHEDULE
+    end
+
     def selecting_teacher?
       state == State::SELECTING_TEACHER
+    end
+
+    def selecting_teacher!
+      @state = State::SELECTING_TEACHER
     end
 
     def settings?
       state == State::SETTINGS
     end
 
+    def settings!
+      @state = State::SETTINGS
+    end
+
     def setting_daily_sending?
       state == State::SETTING_DAILY_SENDING
+    end
+
+    def setting_daily_sending!
+      @state = State::SETTING_DAILY_SENDING
     end
 
     def private?
@@ -83,10 +119,6 @@ module Raspishika
 
     def supergroup?
       id.to_s.to_i.negative?
-    end
-
-    def zaochnoe?
-      @department_name.downcase =~ /заочн/
     end
 
     def cache_key

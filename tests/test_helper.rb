@@ -28,9 +28,7 @@ end
 
 def groups_set
   parser = initialize_parser
-  groups = parser.fetch_all_groups(parser.fetch_departments).map do |dname, groups|
-    { department: dname, group: groups.keys.sample }
-  end
+  groups = parser.fetch_all_groups.map { |dname, groups| { department: dname, group: groups.keys.sample } }
   parser.stop_browser_thread
   groups.select { it[:group] }
 end

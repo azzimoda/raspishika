@@ -27,7 +27,11 @@ module Raspishika
     end
 
     def group_info
-      { department: department, group: group }
+      { department: department, group: group } # TODO? Maybe I should put here `zaochnoe`.
+    end
+
+    def zaochnoe?
+      department.downcase =~ /заочн/
     end
   end
 end

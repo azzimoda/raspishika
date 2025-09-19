@@ -128,24 +128,26 @@ module Raspishika
       end
 
       pair = Schedule.from_raw(raw_schedule).now(time: time)&.pair(0)
-      return unless pair
+      unless pair
+        logger.debug "No pairs left for #{chats.first.group}"
+        return
+      end
 
       text =
         case pair.data.dig(0, :pairs, 0, :type)
         when :subject, :exam, :consultation
-          format("Следующая пара в кабинете %<classroom>s:\n%<discipline>s\n%<teacher>s",
+          format("Следующая пара в кабинете %<classroom>s:\n*%<discipline>s*\n%<teacher>s",
                  pair.data.dig(0, :pairs, 0, :content))
         else
-          logger.debug 'No pairs left for the group'
+          logger.debug "No pairs left for #{chats.first.group}"
           return
         end
 
       logger.debug "Sending pair notification to #{chats.size} chats of group #{chats.first.group}..."
       chats.map(&:tg_id).each do |chat_id|
-        bot.api.send_message(chat_id: chat_id, text: text)
+        send_message(chat_id: chat_id, text: text, parse_mode: 'Markdown')
       rescue StandardError => e
-        logger.error "Failed to send pair notification of group #{chats.first.group} to #{chat_id}:" \
-                     "#{e.detailed_message}"
+        logger.error "Failed to send pair notification for #{chats.first.group} to ##{chat_id}: #{e.detailed_message}"
         logger.error e.backtrace.join("\n\t")
       end
     end

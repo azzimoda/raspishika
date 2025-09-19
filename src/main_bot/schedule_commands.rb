@@ -9,7 +9,7 @@ module Raspishika
     private
 
     def send_week_schedule(message, chat, session, quick: nil)
-      session.state = Session::State::DEFAULT
+      session.default!
       session.save
 
       group_info =
@@ -32,12 +32,10 @@ module Raspishika
       make_photo = -> { Faraday::UploadIO.new(file_path, 'image/png') }
       reply_markup = default_reply_markup chat.tg_id
 
-      send_photo(
-        chat_id: chat.tg_id,
-        photo: make_photo.call,
-        reply_markup: { inline_keyboard: make_update_inline_keyboard('update_week', group_info[:group]) }.to_json
-      )
-      send_message(chat_id: chat.tg_id, text: "Расписание группы #{group_info[:group]}", reply_markup: reply_markup)
+      kb = make_update_inline_keyboard 'update_week', group_info[:group]
+      send_photo(chat_id: chat.tg_id, photo: make_photo.call, reply_markup: { inline_keyboard: kb }.to_json)
+      send_message(chat_id: chat.tg_id, text: "Расписание группы: *#{group_info[:group]}*", parse_mode: 'Markdown',
+                   reply_markup: reply_markup)
       unless schedule
         bot.api.send_message(
           chat_id: chat.tg_id,
@@ -52,7 +50,7 @@ module Raspishika
     end
 
     def send_tomorrow_schedule(message, chat, session)
-      session.state = Session::State::DEFAULT
+      session.default!
       session.save
 
       unless chat.department && chat.group
@@ -81,7 +79,7 @@ module Raspishika
     end
 
     def send_left_schedule(message, chat, session)
-      session.state = Session::State::DEFAULT
+      session.default!
       session.save
 
       unless chat.department && chat.group
@@ -111,7 +109,7 @@ module Raspishika
     end
 
     def ask_for_quick_schedule_type(_message, chat, session)
-      session.state = Session::State::SELECTING_QUICK_SCHEDULE
+      session.quick_schedule!
       session.save
 
       bot.api.send_message(
@@ -125,7 +123,7 @@ module Raspishika
     end
 
     def ask_for_teacher(_message, chat, session)
-      session.state = Session::State::SELECTING_TEACHER
+      session.selecting_teacher!
       session.save
 
       bot.api.send_message(
@@ -144,7 +142,7 @@ module Raspishika
       teachers = FuzzyMatch.new(parser.fetch_teachers.keys).find_all(name).first 6
       logger.debug "Found teachers: #{teachers.inspect}"
 
-      session.state = Session::State::SELECTING_TEACHER
+      session.selecting_teacher!
       session.save
 
       bot.api.send_message(
@@ -159,39 +157,37 @@ module Raspishika
     end
 
     def send_teacher_schedule(message, chat, session)
-      sent_message = send_loading_message chat.tg_id
+      loading_message = send_loading_message chat.tg_id
 
       teacher_name = validate_teacher_name message.text
       logger.debug "Teacher name: #{teacher_name.inspect}"
-      teachers = parser.fetch_teachers
-      teacher_id = teachers[teacher_name]
+
+      chat.add_recent_teacher teacher_name
+      session.default!
+      session.save
+
+      teacher_id = parser.fetch_teachers[teacher_name]
       schedule = parser.fetch_teacher_schedule teacher_id, teacher_name
 
       file_path = ImageGenerator.image_path teacher_id: teacher_id
       make_photo = -> { Faraday::UploadIO.new file_path, 'image/png' }
       reply_markup = default_reply_markup chat.tg_id
 
-      chat.add_recent_teacher teacher_name
-      session.state = Session::State::DEFAULT
-      session.save
+      send_photo(chat_id: chat.tg_id, photo: make_photo.call,
+                 reply_markup: { inline_keyboard: make_update_inline_keyboard('update_teacher', teacher_id) }.to_json)
+      send_message(chat_id: chat.tg_id, text: "Расписание преподавателя: *#{teacher_name}*", reply_markup: reply_markup,
+                   parse_mode: 'Markdown')
+      bot.api.delete_message(chat_id: chat.tg_id, message_id: loading_message.message_id)
+      return if schedule
 
-      send_photo(
+      bot.api.send_message(
         chat_id: chat.tg_id,
-        photo: make_photo.call,
-        reply_markup: { inline_keyboard: make_update_inline_keyboard('update_teacher', teacher_id) }.to_json
+        text: 'Не удалось обновить расписание, *картинка может быть не актуальной!* Попробуйте позже.',
+        parse_mode: 'Markdown',
+        reply_markup: reply_markup
       )
-      send_message(chat_id: chat.tg_id, text: "Расписание преподавателя #{teacher_name}", reply_markup: reply_markup)
-      unless schedule
-        bot.api.send_message(
-          chat_id: chat.tg_id,
-          text: 'Не удалось обновить расписание, *картинка может быть не актуальной!* Попробуйте позже.',
-          parse_mode: 'Markdown',
-          reply_markup: reply_markup
-        )
-        report("Failed to fetch schedule for #{teacher_name} (#{teacher_id})", photo: make_photo.call, log: 20)
-      end
-      bot.api.delete_message(chat_id: chat.tg_id, message_id: sent_message.message_id)
-      throw :fail, true unless schedule
+      report("Failed to fetch schedule for #{teacher_name} (#{teacher_id})", photo: make_photo.call, log: 20)
+      throw :fail, true
     end
 
     def validate_teacher_name(name)

@@ -50,8 +50,7 @@ module Raspishika
       end
 
       logger.info('DevBot') { 'Scheduling statistics sending...' }
-      @scheduler.cron('0 6 * * *') { send_general_statistics }
-      @scheduler.cron('0 18 * * *') { send_general_statistics }
+      @scheduler.cron('0 6/12 * * *') { send_general_statistics }
 
       logger.info('DevBot') { 'Starting statistics bot...' }
       Telegram::Bot::Client.run(@token) do |bot|
