@@ -231,10 +231,18 @@ module Raspishika
 
       html = nil
       uri = URI.parse url
-      resp = Net::HTTP.start(uri.host, uri.port, use_ssl: true) do |http|
-        http.request Net::HTTP::Get.new uri, generate_headers
+      retries = 0
+      resp = loop do
+        resp = Net::HTTP.start(uri.host, uri.port, use_ssl: true) do |http|
+          http.request Net::HTTP::Get.new uri, generate_headers
+        end
+        break resp if resp.code == '200'
+        raise "Failed to load page #{url}: #{resp.inspect}" if (retries += 1) > MAX_RETRIES
+
+        logger.error "Failed to load page #{url}: #{resp.inspect}"
+        logger.error "Retrying in 5 seconds... (#{retries}/#{MAX_RETRIES})"
+        sleep 5
       end
-      raise "Failed to load page: #{url}" unless resp.code == '200'
 
       html = resp.body.dup.force_encoding('Windows-1251')
                  .encode('UTF-8', invalid: :replace, undef: :replace, replace: '')
