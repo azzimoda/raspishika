@@ -182,8 +182,24 @@ module Raspishika
 
       chat = Chat.find_by tg_id: tg_chat.id
       unless chat
-        chat = Chat.create! tg_id: tg_chat.id, username: tg_chat.username
-        report_new_chat chat
+        chat = Chat.create tg_id: tg_chat.id, username: tg_chat.username
+        if chat
+          report_new_chat message
+        else
+          c0 = Chat.find_by username: tg_chat.username
+          if c0 && c0.username != (new_username = bot.api.get_chat(chat_id: c0.tg_id).username)
+            # Old chat have changed its username, the new chat have taken it.
+            c0.update username: new_username
+            chat = Chat.create! tg_id: tg_chat.id, username: tg_chat.username
+            report_new_chat message
+          else
+            # What's going on?
+            msg = "Failed to creade chat record for chat @#{tg_chat.username} ##{tg_chat.id}"
+            report msg, log: 20
+            logger.error msg
+            send_message(chat_id: tg_chat.id, text: 'Произошла ошибка, обратитесь к разработчику: @MazzzaRellla')
+          end
+        end
       end
       session = Session[chat]
 
@@ -299,7 +315,8 @@ module Raspishika
       chat_id = chat.id
       username = (chat.type == 'private' ? from : chat).username&.escape_markdown
       title = (chat.type == 'private' ? from.full_name : chat.title).escape_markdown
-      report "New #{chat.type} chat: [#{chat_id}] @#{username} #{title}"
+      msg = "New #{chat.type} chat: [#{chat_id}] @#{username} #{title}"
+      report msg
       report "`/chat #{chat_id}`", markdown: true
       logger.debug msg
     end
@@ -348,7 +365,7 @@ module Raspishika
 
     def log_error(chat, error, place: nil)
       msgs = ["Unhandled error#{" in #{place}" if place}: #{error.detailed_message}"]
-      msgs << "Message from chat @#{chat.username} ##{chat.id}" if chat
+      msgs << "Message from chat @#{chat.username} ##{chat.tg_id}" if chat
       report(msgs.join("\n"), backtrace: error.backtrace.join("\n"), log: 20, code: true)
       msgs.each { logger.error it }
       logger.error error.backtrace.join("\n\t")
