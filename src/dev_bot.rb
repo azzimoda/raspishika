@@ -109,8 +109,9 @@ module Raspishika
       case e.error_code
       when 400
         if e.message =~ /message is too long/
-          backtrace.lines.each_slice(42) do |part|
-            bot.api.send_sendmessage(chat_id: @admin_chat_id, text: "```\n#{part.join}\n```", parse_mode: 'Markdown')
+          backtrace.lines.each_slice(20) do |part|
+            bot.api.send_message(chat_id: @admin_chat_id, text: "BACKTRACE:\n```\n#{part.join}\n```",
+                                 parse_mode: 'Markdown')
           end
         end
       end
