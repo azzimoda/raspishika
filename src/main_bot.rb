@@ -181,32 +181,45 @@ module Raspishika
       end
 
       chat = Chat.find_by tg_id: tg_chat.id
-      unless chat
-        chat = Chat.create tg_id: tg_chat.id, username: tg_chat.username
-        if chat
-          report_new_chat message
-        else
-          c0 = Chat.find_by username: tg_chat.username
-          if c0 && c0.username != (new_username = bot.api.get_chat(chat_id: c0.tg_id).username)
-            # Old chat have changed its username, the new chat have taken it.
-            c0.update username: new_username
-            chat = Chat.create! tg_id: tg_chat.id, username: tg_chat.username
-            report_new_chat message
-          else
-            # What's going on?
-            msg = "Failed to creade chat record for chat @#{tg_chat.username} ##{tg_chat.id}"
-            report msg, log: 20
-            logger.error msg
-            send_message(chat_id: tg_chat.id, text: 'Произошла ошибка, обратитесь к разработчику: @MazzzaRellla')
-          end
-        end
-      end
+      chat ||= handle_new_chat message
+      chat.update username: bot.api.get_chat(chat_id: chat.tg_id).username
       session = Session[chat]
 
       text = message.text.downcase.sub(/@#{@username.downcase}/, '')
       return if handle_command_message message, text, chat, session
 
       handle_button_message message, text, chat, session
+    end
+
+    def handle_new_chat(message)
+      tg_chat = message.chat
+      chat = Chat.create tg_id: tg_chat.id, username: tg_chat.username
+      if chat.persisted?
+        report_new_chat message
+        return chat
+      end
+
+      logger.warn 'Failed to create a user'
+      logger.warn 'Trying to update username of already registered chat with the same username...'
+      chat0 = Chat.find_by username: tg_chat.username
+      if chat0 && chat0.username != (new_username = bot.api.get_chat(chat_id: chat0.tg_id).username)
+        logger.warn 'Old chat have changed its username, the new chat have taken it. Updating the username...'
+        chat0.update username: new_username
+
+        chat = Chat.create! tg_id: tg_chat.id, username: tg_chat.username
+        if chat.persisted?
+          report_new_chat message
+          return chat
+        end
+        logger.error 'Failed to create chat after updating username'
+      end
+
+      # What's going on?
+      msg = "Failed to creade chat record for chat @#{tg_chat.username} ##{tg_chat.id}"
+      report msg, log: 20
+      logger.error msg
+      send_message(chat_id: tg_chat.id, text: 'Произошла ошибка, обратитесь к разработчику: @MazzzaRellla')
+      nil
     end
 
     def handle_command_message(message, text, chat, session)
