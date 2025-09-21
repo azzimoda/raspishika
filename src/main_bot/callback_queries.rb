@@ -18,6 +18,8 @@ module Raspishika
 
       case args[0]
       when 'update_week' then update_week_schedule(query, chat, *args[1..])
+      when 'update_tomorrow' then update_tomorrow_schedule(query, chat, *args[1..])
+      when 'update_left' then update_left_schedule(query, chat, *args[1..])
       when 'update_teacher' then update_teacher_schedule(query, chat, *args[1..])
       else logger.warn "Unexpected callback query data: #{query.data.inspect}"
       end
@@ -27,26 +29,22 @@ module Raspishika
       start_time = Time.now
       logger.debug "Updating schedule of group #{group}"
 
-      deps = parser.fetch_all_groups
-      department = deps.find { |_, g| g.key? group }.first
+      department = parser.fetch_all_groups.find { |_, g| g.key? group }.first
       group_info = { department: department, group: group }
       schedule = parser.fetch_schedule group_info
+      unless schedule
+        send_update_error_message chat.tg_id
+        report("Failed to fetch schedule for #{group_info}", photo: make_photo.call, log: 20)
+        chat.log_command_usage '<update_week>', false, Time.now - start_time
+        return
+      end
+
       file_path = ImageGenerator.image_path group_info: group_info
       make_photo = -> { Faraday::UploadIO.new file_path, 'image/png' }
 
       Session[chat].tap do
         it.state = Session::State::DEFAULT
         it.save
-      end
-
-      unless schedule
-        bot.api.send_message(
-          chat_id: chat.tg_id,
-          text: 'Не удалось обновить расписание, попробуйте позже.',
-          reply_markup: default_reply_markup(chat.tg_id)
-        )
-        report("Failed to fetch schedule for #{group_info}", photo: make_photo.call, log: 20)
-        return
       end
 
       successful = edit_message_photo(
@@ -56,7 +54,87 @@ module Raspishika
       )
       chat.log_command_usage '<update_week>', successful, Time.now - start_time
     rescue StandardError => e
-      send_message(chat_id: query.message.chat.id, text: 'Не удалось обновить сообщение')
+      send_update_error_message query.message.chat.id
+      "Failed to update week schedule message: #{e.detailed_message}".tap do
+        report it, backtrace: e.backtrace.join("\n"), log: 20
+        logger.error it
+        logger.error e.backtrace.join("\n\t")
+      end
+      chat.log_command_usage '<update_week>', false, Time.now - start_time
+    end
+
+    def update_tomorrow_schedule(query, chat, group)
+      start_time = Time.now
+      logger.debug "Updating tomorrow schedule of group #{group}..."
+
+      schedule = parser.fetch_schedule chat.group_info
+      unless schedule
+        send_update_error_message chat.tg_id
+        report("Failed to fetch schedule for #{group_info}", photo: make_photo.call, log: 20)
+        chat.log_command_usage '<update_week>', false, Time.now - start_time
+        return
+      end
+
+      Session[chat].tap do
+        it.state = Session::State::DEFAULT
+        it.save
+      end
+
+      tomorrow_schedule = schedule && Schedule.from_raw(schedule).day(Date.today.sunday? ? 0 : 1)
+      text = tomorrow_schedule.nil? || tomorrow_schedule.all_empty? ? 'Завтра нет пар!' : tomorrow_schedule.format
+      rm = { inline_keyboard: make_update_inline_keyboard('update_tomorrow', group) }.to_json
+      unless edit_message_text(message: query.message, text: text, parse_mode: 'Markdown', reply_markup: rm)
+        bot.api.answer_callback_query(callback_query_id: query.id, text: 'Ничего не изменилось')
+      end
+      chat.log_command_usage '<update_tomorrow>', true, Time.now - start_time
+    rescue StandardError => e
+      send_update_error_message query.message.chat.id
+      "Failed to update tomorrow schedule message: #{e.detailed_message}".tap do
+        report it, backtrace: e.backtrace.join("\n"), log: 20
+        logger.error it
+        logger.error e.backtrace.join("\n\t")
+      end
+      chat.log_command_usage '<update_tomorrow>', false, Time.now - start_time
+    end
+
+    def update_left_schedule(query, chat, group)
+      start_time = Time.now
+      logger.debug "Updating left pairs schedule of group #{group}..."
+
+      text =
+        if Date.today.sunday?
+          'Сегодня воскресенье, отдыхай!'
+        else
+          department = parser.fetch_all_groups.find { |_, g| g.key? group }.first
+          group_info = { department: department, group: group }
+          schedule = parser.fetch_schedule group_info
+          unless schedule
+            send_update_error_message chat.tg_id
+            report("Failed to fetch schedule for #{group_info}", photo: make_photo.call, log: 20)
+            chat.log_command_usage '<update_week>', false, Time.now - start_time
+            return
+          end
+
+          left_schedule = Schedule.from_raw(schedule).left
+          if left_schedule.nil? || left_schedule.all_empty?
+            'Сегодня больше нет пар!'
+          else
+            left_schedule.format
+          end
+        end
+
+      Session[chat].tap do
+        it.state = Session::State::DEFAULT
+        it.save
+      end
+
+      kb = make_update_inline_keyboard 'update_left', group
+      unless edit_message_text(message: query.message, text: text, reply_markup: { inline_keyboard: kb }.to_json)
+        bot.api.answer_callback_query(callback_query_id: query.id, text: 'Ничего не изменилось')
+      end
+      chat.log_command_usage '<update_left>', true, Time.now - start_time
+    rescue StandardError => e
+      send_update_error_message query.message.chat.id
       "Failed to update week schedule message: #{e.detailed_message}".tap do
         report it, backtrace: e.backtrace.join("\n"), log: 20
         logger.error it
@@ -80,12 +158,9 @@ module Raspishika
       end
 
       unless schedule
-        bot.api.send_message(
-          chat_id: chat.tg_id,
-          text: 'Не удалось обновить расписание, попробуйте позже.',
-          reply_markup: default_reply_markup(chat.tg_id)
-        )
+        send_update_error_message chat.tg_id
         report("Failed to fetch schedule for #{group_info}", photo: make_photo.call, log: 20)
+        chat.log_command_usage '<update_week>', false, Time.now - start_time
         return
       end
 
@@ -96,8 +171,8 @@ module Raspishika
       )
       chat.log_command_usage '<update_teacher>', successful, Time.now - start_time
     rescue StandardError => e
-      send_message(chat_id: query.message.chat.id, text: 'Не удалось обновить сообщение')
-      "Failed to update week schedule message: #{e.detailed_message}".tap do
+      send_update_error_message query.message.chat.id
+      "Failed to update teacher schedule message: #{e.detailed_message}".tap do
         report it, backtrace: e.backtrace.join("\n"), log: 20
         logger.error it
         logger.error e.backtrace.join("\n\t")
@@ -105,13 +180,35 @@ module Raspishika
       chat.log_command_usage '<update_teacher>', false, Time.now - start_time
     end
 
-    def edit_message_photo(message:, photo:, **kwrags)
+    def send_update_error_message(chat_id)
+      send_message(chat_id: chat_id, text: 'Не удалось обновить расписание, попробуйте позже',
+                   reply_markup: default_reply_markup(chat_id))
+    end
+
+    def edit_message_text(message:, text:, **kwargs)
+      bot.api.edit_message_text(chat_id: message.chat.id, message_id: message.message_id, text: text, **kwargs)
+      true
+    rescue Telegram::Bot::Exceptions::ResponseError => e
+      case e.error_code
+      when 400
+        case e.message
+        when /message is not modified/i then return false
+        end
+      end
+
+      send_message(chat_id: message.chat.id, text: 'Не удалось обновить сообщение')
+      chat = Chat.find_by tg_id: message.chat.id
+      log_error chat, e, place: 'Bot#edit_message_photo'
+      false
+    end
+
+    def edit_message_photo(message:, photo:, **kwargs)
       bot.api.edit_message_media(
         chat_id: message.chat.id,
         message_id: message.message_id,
         media: { type: 'photo', media: 'attach://file' }.to_json,
         file: photo,
-        **kwrags
+        **kwargs
       )
       true
     rescue Telegram::Bot::Exceptions::ResponseError => e
@@ -122,7 +219,7 @@ module Raspishika
           bot.api.edit_message_caption(
             chat_id: message.chat.id,
             message_id: message.message_id,
-            caption: 'Ничего не изменилось', **kwrags
+            caption: 'Ничего не изменилось', **kwargs
           )
           return true
         end

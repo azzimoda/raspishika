@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require 'json'
 require 'fuzzy_match'
 
 require_relative '../schedule'
@@ -58,24 +59,11 @@ module Raspishika
         return configure_group message, chat, session
       end
 
-      sent_message = send_loading_message chat.tg_id
       schedule = parser.fetch_schedule chat.group_info
-      day_index = Date.today.sunday? ? 0 : 1
-      tomorrow_schedule = schedule && Schedule.from_raw(schedule).day(day_index)
-      text =
-        if tomorrow_schedule.nil? || tomorrow_schedule.all_empty?
-          'Завтра нет пар!'
-        else
-          tomorrow_schedule.format
-        end
-
-      bot.api.send_message(
-        chat_id: chat.tg_id,
-        text: text,
-        parse_mode: 'Markdown',
-        reply_markup: default_reply_markup(chat.tg_id)
-      )
-      bot.api.delete_message(chat_id: chat.tg_id, message_id: sent_message.message_id)
+      tomorrow_schedule = schedule && Schedule.from_raw(schedule).day(Date.today.sunday? ? 0 : 1)
+      text = tomorrow_schedule.nil? || tomorrow_schedule.all_empty? ? 'Завтра нет пар!' : tomorrow_schedule.format
+      rm = { inline_keyboard: make_update_inline_keyboard('update_tomorrow', chat.group) }.to_json
+      send_message(chat_id: chat.tg_id, text: text, parse_mode: 'Markdown', reply_markup: rm)
     end
 
     def send_left_schedule(message, chat, session)
@@ -83,18 +71,16 @@ module Raspishika
       session.save
 
       unless chat.department && chat.group
-        bot.api.send_message(chat_id: chat.tg_id, text: 'Группа не выбрана')
+        send_message(chat_id: chat.tg_id, text: 'Группа не выбрана')
         return configure_group message, chat, session
       end
 
-      reply_markup = default_reply_markup chat.tg_id
-
       if Date.today.sunday?
-        bot.api.send_message(chat_id: chat.tg_id, text: 'Сегодня воскресенье, отдыхай!', reply_markup: reply_markup)
+        rm = { inline_keyboard: make_update_inline_keyboard('update_left', chat.group) }.to_json
+        send_message(chat_id: chat.tg_id, text: 'Сегодня воскресенье, отдыхай!', reply_markup: rm)
         return
       end
 
-      sent_message = send_loading_message chat.tg_id
       schedule = parser.fetch_schedule chat.group_info
       left_schedule = schedule && Schedule.from_raw(schedule).left
       text =
@@ -104,8 +90,8 @@ module Raspishika
           left_schedule.format
         end
 
-      bot.api.send_message(chat_id: chat.tg_id, text: text, parse_mode: 'Markdown', reply_markup: reply_markup)
-      bot.api.delete_message(chat_id: chat.tg_id, message_id: sent_message.message_id)
+      send_message(chat_id: chat.tg_id, text: text, parse_mode: 'Markdown',
+                   reply_markup: { inline_keyboard: make_update_inline_keyboard('update_left', chat.group) }.to_json)
     end
 
     def ask_for_quick_schedule_type(_message, chat, session)

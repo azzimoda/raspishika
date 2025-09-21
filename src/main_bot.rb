@@ -22,9 +22,9 @@ module Raspishika
   class Bot
     include GlobalLogger
 
-    TOKEN = Config[:bot][:token]
-    THEAD_POOL_SIZE = Config[:bot][:thread_pool_size]
-    MAX_RETRIES = Config[:bot][:max_retries]
+    TOKEN = Config[:bot][:token].freeze
+    THEAD_POOL_SIZE = Config[:bot][:thread_pool_size].freeze
+    MAX_RETRIES = Config[:bot][:max_retries].freeze
 
     LABELS = {
       left: 'Оставшиеся пары',
@@ -48,9 +48,7 @@ module Raspishika
       [LABELS[:quick_schedule], LABELS[:settings]]
     ].freeze
     DEFAULT_REPLY_MARKUP = {
-      keyboard: DEFAULT_KEYBOARD,
-      resize_keyboard: true,
-      one_time_keyboard: true
+      keyboard: DEFAULT_KEYBOARD, resize_keyboard: true, one_time_keyboard: false
     }.to_json.freeze
     MY_COMMANDS = [
       { command: 'left', description: 'Оставшиеся пары' },
@@ -120,7 +118,7 @@ module Raspishika
 
     # Schedules a daily database backup at midnight using a cron job.
     def schedule_db_backup
-      @scheduler.cron('0 0 * * *') { backup_database if @run }
+      @scheduler.cron('0 0 * * *') { Raspishika.backup_database if @run }
       logger.info 'Database backup scheduled'
     end
 
