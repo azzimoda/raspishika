@@ -128,8 +128,8 @@ module Raspishika
         it.save
       end
 
-      kb = make_update_inline_keyboard 'update_left', group
-      unless edit_message_text(message: query.message, text: text, reply_markup: { inline_keyboard: kb }.to_json)
+      rm = { inline_keyboard: make_update_inline_keyboard('update_left', group) }.to_json
+      unless edit_message_text(message: query.message, text: text, parse_mode: 'Markdown', reply_markup: rm)
         bot.api.answer_callback_query(callback_query_id: query.id, text: 'Ничего не изменилось')
       end
       chat.log_command_usage '<update_left>', true, Time.now - start_time
