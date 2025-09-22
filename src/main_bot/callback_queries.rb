@@ -83,10 +83,13 @@ module Raspishika
       tomorrow_schedule = schedule && Schedule.from_raw(schedule).day(Date.today.sunday? ? 0 : 1)
       text = tomorrow_schedule.nil? || tomorrow_schedule.all_empty? ? 'Завтра нет пар!' : tomorrow_schedule.format
       rm = { inline_keyboard: make_update_inline_keyboard('update_tomorrow', group) }.to_json
-      unless edit_message_text(message: query.message, text: text, parse_mode: 'Markdown', reply_markup: rm)
-        bot.api.answer_callback_query(callback_query_id: query.id, text: 'Ничего не изменилось')
-      end
-      chat.log_command_usage '<update_tomorrow>', true, Time.now - start_time
+      successful =
+        unless edit_message_text(message: query.message, text: text, parse_mode: 'Markdown', reply_markup: rm)
+          handle_old_query_error do
+            bot.api.answer_callback_query(callback_query_id: query.id, text: 'Ничего не изменилось')
+          end
+        end
+      chat.log_command_usage '<update_tomorrow>', successful, Time.now - start_time
     rescue StandardError => e
       send_update_error_message query.message.chat.id
       "Failed to update tomorrow schedule message: #{e.detailed_message}".tap do
@@ -129,10 +132,13 @@ module Raspishika
       end
 
       rm = { inline_keyboard: make_update_inline_keyboard('update_left', group) }.to_json
-      unless edit_message_text(message: query.message, text: text, parse_mode: 'Markdown', reply_markup: rm)
-        bot.api.answer_callback_query(callback_query_id: query.id, text: 'Ничего не изменилось')
-      end
-      chat.log_command_usage '<update_left>', true, Time.now - start_time
+      successful =
+        unless edit_message_text(message: query.message, text: text, parse_mode: 'Markdown', reply_markup: rm)
+          handle_old_query_error do
+            bot.api.answer_callback_query(callback_query_id: query.id, text: 'Ничего не изменилось')
+          end
+        end
+      chat.log_command_usage '<update_left>', successful, Time.now - start_time
     rescue StandardError => e
       send_update_error_message query.message.chat.id
       "Failed to update week schedule message: #{e.detailed_message}".tap do
@@ -141,6 +147,18 @@ module Raspishika
         logger.error e.backtrace.join("\n\t")
       end
       chat.log_command_usage '<update_week>', false, Time.now - start_time
+    end
+
+    def handle_old_query_error(&block)
+      block&.call
+      true
+    rescue Telegram::Bot::Exceptions::ResponseError => e
+      if e.error_code == 400 && e.message =~ /query is too old/i
+        logger.warn "Someone's very fast, but query is too old: @#{chat.username} ##{chat.tg_id}"
+        return false
+      end
+
+      raise e
     end
 
     def update_teacher_schedule(query, chat, teacher_id)
