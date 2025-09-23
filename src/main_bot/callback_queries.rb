@@ -85,7 +85,7 @@ module Raspishika
       rm = { inline_keyboard: make_update_inline_keyboard('update_tomorrow', group) }.to_json
       successful =
         unless edit_message_text(message: query.message, text: text, parse_mode: 'Markdown', reply_markup: rm)
-          handle_old_query_error do
+          handle_old_query_error chat do
             bot.api.answer_callback_query(callback_query_id: query.id, text: 'Ничего не изменилось')
           end
         end
@@ -134,7 +134,7 @@ module Raspishika
       rm = { inline_keyboard: make_update_inline_keyboard('update_left', group) }.to_json
       successful =
         unless edit_message_text(message: query.message, text: text, parse_mode: 'Markdown', reply_markup: rm)
-          handle_old_query_error do
+          handle_old_query_error chat do
             bot.api.answer_callback_query(callback_query_id: query.id, text: 'Ничего не изменилось')
           end
         end
@@ -149,7 +149,7 @@ module Raspishika
       chat.log_command_usage '<update_week>', false, Time.now - start_time
     end
 
-    def handle_old_query_error(&block)
+    def handle_old_query_error(chat, &block)
       block&.call
       true
     rescue Telegram::Bot::Exceptions::ResponseError => e
