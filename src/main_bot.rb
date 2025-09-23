@@ -55,14 +55,14 @@ module Raspishika
       { command: 'tomorrow', description: 'Расписание на завтра' },
       { command: 'week', description: 'Расписание на неделю' },
 
-      { command: 'quick_schedule', description: 'Расписание другой группы' },
-      { command: 'teacher_schedule', description: 'Расписание преподавателя' },
+      { command: 'quick', description: 'Расписание другой группы' },
+      { command: 'teacher', description: 'Расписание преподавателя' },
 
-      { command: 'configure_daily_sending', description: 'Настроить ежедневную рассылку' },
-      { command: 'daily_sending_off', description: 'Выключить ежедневную рассылку' },
+      { command: 'daily_sending', description: 'Настроить ежедневную рассылку' },
+      { command: 'daily_sending_off', description: 'Выкл. ежедневную рассылку' },
 
-      { command: 'pair_sending_on', description: 'Включить рассылку перед парами' },
-      { command: 'pair_sending_off', description: 'Выключить рассылку перед парами' },
+      { command: 'pair_sending_on', description: 'Вкл. уведомления перед парами' },
+      { command: 'pair_sending_off', description: 'Выкл. уведомления перед парами' },
 
       { command: 'set_group', description: 'Изменить группу' },
 
@@ -232,7 +232,7 @@ module Raspishika
 
       when '/set_group'
         handle_command(message, chat, text, ok_stats: false) { configure_group message, chat, session }
-      when '/configure_daily_sending'
+      when '/daily_sending'
         handle_command(message, chat, text, ok_stats: false) { configure_daily_sending message, chat, session }
       when '/daily_sending_off'
         handle_command(message, chat, text) { disable_daily_sending message, chat, session }
@@ -254,40 +254,40 @@ module Raspishika
         handle_command(message, chat, '/left') { send_left_schedule message, chat, session }
 
       when ->(t) { session.selecting_department? && session.departments.map(&:downcase).include?(t) }
-        handle_command(message, chat, session.selecting_quick? ? '/quick_schedule' : '/set_group', ok_stats: false) do
+        handle_command(message, chat, session.selecting_quick? ? '/quick' : '/set_group', ok_stats: false) do
           select_department message, chat, session
         end
       when ->(_) { session.selecting_department? }
-        handle_command(message, chat, session.selecting_quick? ? '/quick_schedule' : '/set_group', ok_stats: false) do
+        handle_command(message, chat, session.selecting_quick? ? '/quick' : '/set_group', ok_stats: false) do
           send_message(chat_id: message.chat.id, text: 'Неверное название отделения, попробуй ещё раз')
         end
 
       when ->(t) { session.selecting_group? && session.groups.keys.map(&:downcase).include?(t) }
-        handle_command(message, chat, session.selecting_quick? ? '/quick_schedule' : '/set_group') do
+        handle_command(message, chat, session.selecting_quick? ? '/quick' : '/set_group') do
           select_group message, chat, session
         end
       when ->(_) { session.selecting_group? }
-        handle_command(message, chat, session.selecting_quick? ? '/quick_schedule' : '/set_group') do
+        handle_command(message, chat, session.selecting_quick? ? '/quick' : '/set_group') do
           send_message(chat_id: message.chat.id, text: 'Неверное название группы, попробуй ещё раз')
         end
 
       when ->(t) { session.default? && t == LABELS[:quick_schedule].downcase }
-        handle_command(message, chat, '/quick_schedule', ok_stats: false) do
+        handle_command(message, chat, '/quick', ok_stats: false) do
           ask_for_quick_schedule_type message, chat, session
         end
 
-      when ->(t) { session.quick_schedule? && t == LABELS[:other_group].downcase || t == '/quick_schedule' }
-        handle_command(message, chat, '/quick_schedule', ok_stats: false) do
+      when ->(t) { session.quick_schedule? && t == LABELS[:other_group].downcase || t == '/quick' }
+        handle_command(message, chat, '/quick', ok_stats: false) do
           configure_group message, chat, session, quick: true
         end
-      when ->(t) { session.quick_schedule? && t == LABELS[:teacher].downcase || t == '/teacher_schedule' }
-        handle_command(message, chat, '/teacher_schedule', ok_stats: false) { ask_for_teacher message, chat, session }
+      when ->(t) { session.quick_schedule? && t == LABELS[:teacher].downcase || t == '/teacher' }
+        handle_command(message, chat, '/teacher', ok_stats: false) { ask_for_teacher message, chat, session }
 
       when ->(_) { session.selecting_teacher? }
         if validate_teacher_name text
-          handle_command(message, chat, '/teacher_schedule') { send_teacher_schedule message, chat, session }
+          handle_command(message, chat, '/teacher') { send_teacher_schedule message, chat, session }
         else
-          handle_command(message, chat, '/teacher_schedule', ok_stats: false) do
+          handle_command(message, chat, '/teacher', ok_stats: false) do
             reask_for_teacher message, chat, session, text
           end
         end
@@ -297,7 +297,7 @@ module Raspishika
       when ->(t) { session.settings? && t == LABELS[:my_group].downcase }
         handle_command(message, chat, '/set_group', ok_stats: false) { configure_group message, chat, session }
       when ->(t) { session.settings? && t == LABELS[:daily_sending].downcase }
-        handle_command(message, chat, '/configure_daily_sending', ok_stats: false) do
+        handle_command(message, chat, '/daily_sending', ok_stats: false) do
           configure_daily_sending message, chat, session
         end
       when ->(t) { session.settings? && t == LABELS[:pair_sending_on].downcase }
@@ -313,7 +313,7 @@ module Raspishika
         end
           handle_command(message, chat, '/set_daily_sending') { set_daily_sending message, chat, session }
         else
-          handle_command(message, chat, '/configure_daily_sending', ok_stats: false) do
+          handle_command(message, chat, '/daily_sending', ok_stats: false) do
             send_message(chat_id: message.chat.id, text: 'Неправильный формат времени, попробуйте ещё раз')
           end
         end

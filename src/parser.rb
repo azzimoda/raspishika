@@ -317,7 +317,6 @@ module Raspishika
     end
 
     def generate_headers
-      # TODO: Remove unnecessary things.
       {
         'User-Agent' => UserAgentRandomizer::UserAgent.fetch.string,
         'Referer' => 'https://coworking.tyuiu.ru/shs/all_t/'

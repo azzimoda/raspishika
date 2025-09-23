@@ -2,7 +2,7 @@
 
 class String # rubocop:disable Style/Documentation
   def escape_markdown
-    ['\\', '*', '_', '{', '}', '[', ']', '(', ')', '>', '#', '+', '-', '.', '!', '~']
+    ['\\', '*', '_', '{', '}', '[', ']', '>', '#']
       .each_with_object(dup) { |c, s| s.gsub! c, "\\#{c}" }
   end
 end

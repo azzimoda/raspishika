@@ -451,19 +451,14 @@ module Raspishika
         text = usage.command.downcase.sub(/@#{bot_name}$/, '')
 
         case text
-        when '/help'                         then :help
-
-        when '/week'                         then :week
-        when '/tomorrow'                     then :tomorrow
-        when '/left'                         then :left
-
-        when '/quick_schedule'               then :quick_schedule
-        when '/teacher_schedule'             then :teacher_schedule
-
-        when '/set_group'                    then :set_group
-        when '/configure_daily_sending'      then :configure_daily_sending
-
-        when '/settings', Bot::LABELS[:settings].downcase then :settings
+        when '/help'          then :help
+        when '/week'          then :week
+        when '/tomorrow'      then :tomorrow
+        when '/left'          then :left
+        when '/quick'         then :quick
+        when '/teacher'       then :teacher
+        when '/set_group'     then :set_group
+        when '/daily_sending' then :daily_sending
         else :other
         end
       end

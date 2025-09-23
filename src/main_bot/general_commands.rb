@@ -2,57 +2,50 @@
 
 module Raspishika
   class Bot
-    START_MESSAGE = <<~MARKDOWN
-      Привет!
+    START_MESSAGE = <<~MARKDOWN.escape_markdown.freeze
+      Привет! Я предоставляю удобный способ получать расписание пар МПК ТИУ
 
-      Этот бот предоставляет удобный способ получать расписание пар МПК ТИУ.
-
-      Для этого тебе нужно задать группу с помощью команды /set_group или кнопкой "Выбрать группу". \
-      После этого ты можешь получить расписание на неделю (/week), на завтра (/tomorrow) или \
+      Для этого тебе нужно задать группу с помощью команды /set_group. \
+      После этого ты можешь получать расписание на неделю (/week), на завтра (/tomorrow) или \
       оставшиеся пары сегодня (/left).
 
-      Также ты можешь:
+      Также ты можешь использовать кнопки клавиатуры и добавлять меня в группы. \
+      Остальные команды перечислены в /help.
 
-      - использовать кнопки клавиатуры для быстрого доступа к основным функциям,
-      - посмотреть расписание другой группы не меняя свою (/quick_schedule, "Быстрое расписание",
-      - посмотреть расписание преподавателя (/teacher_schedule, "Быстрое расписание"),
-      - настроить ежедневную рассылку недельного расписания (/configure_daily_sending),
-      - включить/выключить рассылку за 15 минут перед парами (/pair_sending_on и /pair_sending_off),
-      - использовать бота в групповых чатах,
-      - удалить свои данные (/stop).
-
-      По всем вопросам и предложениям обращайтесь к расработчику @MazzzaRellla или пишите в комментарии канала @mazzaLLM.
+      По всем вопросам обращайтесь к расработчику @MazzzaRellla или пишите в комментарии канала @mazzaLLM.
     MARKDOWN
-    HELP_MESSAGE = <<~MARKDOWN
+    HELP_MESSAGE = <<~MARKDOWN.escape_markdown.freeze
       Доступные команды:
 
       - /left — Оставшиеся пары
       - /tomorrow — Расписание на завтра
       - /week — Расписание на неделю
-      - /quick_schedule — Расписание другой группы
-      - /teacher_schedule — Расписание преподавателя
-      - /configure_daily_sending — Настроить ежедневную рассылку
+      - /quick — Расписание другой группы
+      - /teacher — Расписание преподавателя
+      - /daily_sending — Настроить ежедневную рассылку
       - /daily_sending_off — Выключить ежедневную рассылку
-      - /pair_sending_on — Включить рассылку перед парами
-      - /pair_sending_off — Выключить рассылку перед парами
+      - /pair_sending_on — Включить уведомления перед парами
+      - /pair_sending_off — Выключить уведомления перед парами
       - /set_group — Изменить свою группу
       - /cancel — Отменить действие или выйти из меню
-      - /stop — Остановить бота и удалить данные о себе
+      - /stop — Удалить данные о себе и остановить рассылки
       - /help — Это сообщение
 
-      По всем вопросам и предложениям обращайтесь к расработчику @MazzzaRellla или пишите в комментарии канала @mazzaLLM.
+      По всем вопросам обращайтесь к расработчику @MazzzaRellla или пишите в комментарии канала @mazzaLLM.
     MARKDOWN
 
     private
 
     def start_message(_message, chat, _session)
-      send_message(chat_id: chat.tg_id, text: START_MESSAGE, reply_markup: default_reply_markup(chat.tg_id))
+      send_message(chat_id: chat.tg_id, text: START_MESSAGE, parse_mode: 'Markdown',
+                   reply_markup: default_reply_markup(chat.tg_id))
     end
 
     def help_message(_message, chat, session)
       session.default!
       session.save
-      send_message(chat_id: chat.tg_id, text: HELP_MESSAGE, reply_markup: default_reply_markup(chat.tg_id))
+      send_message(chat_id: chat.tg_id, text: HELP_MESSAGE, parse_mode: 'Markdown',
+                   reply_markup: default_reply_markup(chat.tg_id))
     end
 
     def stop(message, chat, _session)
