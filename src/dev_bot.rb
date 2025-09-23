@@ -22,6 +22,8 @@ module Raspishika
       { command: 'log', description: 'Get last log' },
       { command: 'help', description: 'No help' }
     ].freeze
+    GROUP_RE = /(\p{L}{2,5})[- ]?(\d{2})[- ]?\(?(9|11)\)?[- ]?(\d)/.freeze
+    TIME_ARG_RE = /(\d+)([mhdw])?/.freeze
 
     def initialize(main_bot:)
       @main_bot = main_bot
@@ -125,10 +127,13 @@ module Raspishika
       when '/log' then send_log
       when '/general' then send_general_statistics
       when '/departments' then send_departments
-      when %r{/groups\s+(\d+)} then send_groups limit: Regexp.last_match(1).to_i
+      when %r{/group\s+(.+)} then send_group_stats group: Regexp.last_match(1)
       when '/groups' then send_groups
+      when %r{/groups\s+(\d+)} then send_groups limit: Regexp.last_match(1).to_i
       when '/config' then send_config_statistics
       when '/commands' then send_commands_statistics
+      when '/perfomance' then send_perfomans_stats
+      when %r{/perfomance\s+(#{TIME_ARG_RE})} then send_perfomans_stats parse_time_arg Regexp.last_match(1)
       when %r{/commands\s+(\d+)} then send_commands_statistics days: Regexp.last_match(1).to_i
       when '/new_chats' then send_new_chats
       when %r{/new_chats\s+(\d+)} then send_new_chats days: Regexp.last_match(1).to_i
@@ -142,6 +147,20 @@ module Raspishika
       bot.api.send_message(
         chat_id: admin_chat_id, text: "```\n#{e.backtrace.join("\n")}\n```", parse_mode: 'Markdown'
       )
+    end
+
+    def parse_time_arg(str, default_masure: 'h')
+      m = str.match(TIME_ARG_RE)
+      return unless m
+
+      a =
+        case m[2]
+        when 'm' then 60 # Minutes
+        when 'h' then 60 * 60 # Hours
+        when 'd' then 24 * 60 * 60 # Days
+        when 'w' then 7 * 24 * 60 * 60 # Weeks
+        end
+      m[1].to_i * a
     end
 
     def send_log(lines: 20)
@@ -183,6 +202,27 @@ module Raspishika
       bot.api.send_message(chat_id: @admin_chat_id, text: text, parse_mode: 'Markdown')
     end
 
+    def send_group_stats(group: nil)
+      return unless group
+
+      all_groups = @main_bot.parser.fetch_all_groups.values.inject(&:merge).keys
+      group = DevBot.normalize_group_name all_groups, group
+      return unless group
+
+      chats = Chat.where group: group
+
+      bot.api.send_message(chat_id: @admin_chat_id, text: <<~MARKDOWN, parse_mode: 'Markdown')
+        *Group:* #{group}
+        *Private chats:* #{chats.count(&:private?)}
+
+        #{chats.select(&:private?).map { "`/chat #{it.tg_id}` @#{it.username}" }.join("\n")}
+
+        *Group chats:* #{chats.count(&:supergroup?)}
+
+        #{chats.select(&:supergroup?).map { "`/chat #{it.tg_id}` @#{it.username}" }.join("\n")}
+      MARKDOWN
+    end
+
     def send_groups(limit: nil)
       groups = collect_statistics[:groups]
                .transform_keys { DevBot.just_group it }
@@ -191,9 +231,11 @@ module Raspishika
       groups = groups.first limit if limit
 
       text = <<~MARKDOWN
-        Total groups: #{groups.size}
+        *Total groups:* #{groups.size}
 
-        #{groups.map { |k, v| format('`%15s (%2d PC, %2d GC)`', k, *v) }.join("\n")}
+        ```
+        #{groups.map { |g, v| "#{g.ljust(15)} => #{v[0].to_s.rjust(2)} PC, #{v[1].to_s.rjust(2)} GC" }.join("\n")}
+        ```
       MARKDOWN
       bot.api.send_message(chat_id: @admin_chat_id, text: text, parse_mode: 'Markdown')
     end
@@ -202,55 +244,58 @@ module Raspishika
       statistics = collect_statistics
 
       total_chats = statistics[:private_chats].size + statistics[:group_chats].size
-      top_groups = statistics[:groups].transform_values { [it.count(&:private?), it.count { !it.private? }] }
-                                      .sort_by(&:last).reverse.first(5)
-      top_groups.map! { |k, v| format('`%s => %2d PC, %2d GC`', DevBot.just_group(k), *v) }
+      top_groups = Chat.all.group_by(&:group).transform_values do |chats|
+        cphs = chats.map do |c|
+          # Commands per hour
+          c.command_usages.where(created_at: (Time.now - 7 * 24 * 60 * 60)..Time.now).count.to_f / 7 * 24
+        end
+        cphs.sum.to_f / cphs.size
+      end.sort_by { |_, cph| cph }.reverse.first(5)
+      top_groups.map! { |g, cph| "#{DevBot.just_group(g)} => #{cph} CPH" }
 
-      day_commands =
-        statistics[:command_usages].transform_values { |v| v.select { Time.now - it.created_at <= 24 * 60 * 60 } }
-      active_chats = CommandUsage.where(created_at: (Time.now - 24 * 60 * 60)..Time.now).map(&:chat_id).uniq.size
-      total_ok_commands = day_commands.values.sum { it.count { it.successful } }
-      total_fail_commands = day_commands.values.sum { it.count { !it.successful } }
-      schedule_commands = day_commands.slice(:week, :tomorrow, :left).values.sum(&:size)
+      day_commands = CommandUsage.where(created_at: (Time.now - 24 * 60 * 60)..Time.now)
+      active_chats = day_commands.map(&:chat_id).uniq.size
+      total_ok_commands = day_commands.where(successful: true).count
+      total_fail_commands = day_commands.where(successful: false).count
+      schedule_commands = day_commands.where("command IN ('/week', '/tomorrow', '/left')").count
 
-      week_commands =
-        statistics[:command_usages].transform_values { |v| v.select { Time.now - it.created_at <= 7 * 24 * 60 * 60 } }
-      active_chats_week = CommandUsage.where(created_at: (Time.now - 7 * 24 * 60 * 60)..Time.now).map(&:chat_id).uniq.size
-      total_ok_commands_week = week_commands.values.sum { it.count { it.successful } }
-      total_fail_commands_week = week_commands.values.sum { it.count { !it.successful } }
-      schedule_commands_week = week_commands.slice(:week, :tomorrow, :left).values.sum(&:size)
+      week_commands = CommandUsage.where(created_at: (Time.now - 7 * 24 * 60 * 60)..Time.now)
+      active_chats_week = week_commands.map(&:chat_id).uniq.size
+      total_ok_commands_week = week_commands.where(successful: true).count
+      total_fail_commands_week = week_commands.where(successful: false).count
+      schedule_commands_week = week_commands.where("command IN ('/week', '/tomorrow', '/left')").count
 
       bot.api.send_message(chat_id: admin_chat_id, parse_mode: 'Markdown', text: <<~MARKDOWN)
-        GENERAL
+        *GENERAL*
 
-        Total chats: #{total_chats}
-        Private chats: #{statistics[:private_chats].size}
-        Group chats: #{statistics[:group_chats].size}
+        *Total chats:* #{total_chats}
+        *Private chats:* #{statistics[:private_chats].size}
+        *Group chats:* #{statistics[:group_chats].size}
 
-        Total groups: #{statistics[:groups].size}
-        Top 5 groups by students:
+        *Total groups:* #{statistics[:groups].size}
+        *Top 5 groups by activeness:*
+        ```
         #{top_groups.join "\n"}
+        ```
         (/groups)
-
-        Total departments: #{statistics[:departments].size}
         (/departments)
       MARKDOWN
       bot.api.send_message(chat_id: admin_chat_id, parse_mode: 'Markdown', text: <<~MARKDOWN)
-        LAST 24 HOURS
+        *LAST 24 HOURS*
 
-        New chats: #{statistics[:new_chats].size}
+        *New chats:* #{statistics[:new_chats].size}
         (/new\\_chats)
-        Active chats: #{active_chats}
-        Total commands used: #{total_ok_commands} ok + #{total_fail_commands} fail
-        Schedule commands used: #{schedule_commands}
+        *Active chats:* #{active_chats}
+        *Total commands used:* #{total_ok_commands} ok + #{total_fail_commands} fail
+        *Schedule commands used:* #{schedule_commands}
         (/commands)
       MARKDOWN
       bot.api.send_message(chat_id: admin_chat_id, parse_mode: 'Markdown', text: <<~MARKDOWN)
-        LAST WEEK
+        *LAST WEEK*
 
-        Active chats: #{active_chats_week}
-        Total commands used: #{total_ok_commands_week} ok + #{total_fail_commands_week} fail
-        Schedule commands used: #{schedule_commands_week}
+        *Active chats:* #{active_chats_week}
+        *Total commands used:* #{total_ok_commands_week} ok + #{total_fail_commands_week} fail
+        *Schedule commands used:* #{schedule_commands_week}
       MARKDOWN
     end
 
@@ -317,6 +362,21 @@ module Raspishika
       bot.api.send_message(chat_id: admin_chat_id, text: text, parse_mode: 'Markdown')
     end
 
+    def send_perfomans_stats(period = 24 * 60 * 60)
+      commands = period.zero? ? CommandUsage.all : CommandUsage.where(created_at: (Time.now - period)..)
+      avg_response_time_by_command = commands.group(:command).average(:response_time)
+      mins = period / 60
+      hours = mins / 60
+      days = hours / 24
+      send_message text: <<~MARKDOWN, parse_mode: 'Markdown'
+        *Average response time for each command (last #{period}s/#{mins}m/#{hours}h/#{days}d):*
+
+        ```
+        #{avg_response_time_by_command.map { |c, a| "#{c} => #{a}" }.join("\n")}
+        ```
+      MARKDOWN
+    end
+
     def send_chat_statistics(id_or_username)
       chat_data =
         if id_or_username =~ /-?\d+/
@@ -340,6 +400,10 @@ module Raspishika
         *Pair sending:* #{chat_data.pair_sending}
       MARKDOWN
       bot.api.send_message(chat_id: admin_chat_id, text: text, parse_mode: 'Markdown')
+    end
+
+    def send_message(**kwargs)
+      bot.api.send_message chat_id: @admin_chat_id, **kwargs
     end
 
     def collect_statistics
@@ -403,6 +467,14 @@ module Raspishika
         else :other
         end
       end
+    end
+
+    def self.normalize_group_name(all_groups, name)
+      match = name&.match(GROUP_RE)
+      return unless match
+
+      normalized = "#{match[1].downcase}-#{match[2]}-(#{match[3]})-#{match[4]}"
+      all_groups.find { it.downcase == normalized }
     end
 
     def self.just_group(group)
