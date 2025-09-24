@@ -9,7 +9,7 @@ require_relative 'logger'
 
 module Raspishika
   class DevBot
-    include GlobalLogger
+    GlobalLogger.define_named_logger self
 
     MY_COMMANDS = [
       { command: 'chat', description: 'Get statistics for a chat with given chat ID of username' },
@@ -177,7 +177,7 @@ module Raspishika
     end
 
     def last_log(lines: 20)
-      File.exist?(logger.log_file) ? `tail -n #{lines} #{logger.log_file.shellescape}` : ''
+      File.exist?(Raspishika.logger.log_file) ? `tail -n #{lines} #{Raspishika.logger.log_file.shellescape}` : ''
     rescue StandardError => e
       "Failed to get last log: #{e.detailed_message}".tap do
         logger.error it

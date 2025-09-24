@@ -55,7 +55,7 @@ module Raspishika
       session.save
 
       unless chat.department && chat.group
-        bot.api.send_message(chat_id: chat.tg_id, text: 'Группа не выбрана')
+        send_message(chat_id: chat.tg_id, text: 'Группа не выбрана')
         return configure_group message, chat, session
       end
 
@@ -103,7 +103,8 @@ module Raspishika
         text: 'Какое расписание?',
         reply_markup: {
           keyboard: [['Отмена'], [LABELS[:other_group], LABELS[:teacher]]],
-          resize_keyboard: true
+          resize_keyboard: true,
+          one_time_keyboard: true
         }.to_json
       )
     end
@@ -183,11 +184,7 @@ module Raspishika
     end
 
     def send_loading_message(chat_id)
-      bot.api.send_message(
-        chat_id: chat_id,
-        text: 'Загружаю...',
-        reply_markup: { remove_keyboard: true }.to_json
-      )
+      bot.api.send_message(chat_id: chat_id, text: 'Загружаю...', reply_markup: { remove_keyboard: true }.to_json)
     end
   end
 end

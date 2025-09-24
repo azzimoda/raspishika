@@ -5,7 +5,7 @@ require_relative 'logger'
 
 module Raspishika
   module ImageGenerator
-    extend GlobalLogger
+    GlobalLogger.define_named_logger self
 
     TEMPLATE = File.read(File.expand_path('html/template.html', __dir__))
     IMAGE_WIDTH = Config[:image_generator][:width]

@@ -20,7 +20,7 @@ require_relative 'main_bot/sending'
 
 module Raspishika
   class Bot
-    include GlobalLogger
+    GlobalLogger.define_named_logger self
 
     TOKEN = Config[:bot][:token].freeze
     THEAD_POOL_SIZE = Config[:bot][:thread_pool_size].freeze
@@ -172,9 +172,9 @@ module Raspishika
       tg_chat = message.chat
       from = message.from
       if tg_chat.type == 'private'
-        logger.debug "[#{tg_chat.id}] @#{from.username} #{from.full_name} => #{short_text.inspect}"
+        logger.info "[#{tg_chat.id}] @#{from.username} #{from.full_name} => #{short_text.inspect}"
       else
-        logger.debug("[#{tg_chat.id} @#{tg_chat.username} #{tg_chat.title}]" \
+        logger.info("[#{tg_chat.id} @#{tg_chat.username} #{tg_chat.title}]" \
                      " @#{from.username} #{from.full_name} => #{short_text.inspect}")
       end
 

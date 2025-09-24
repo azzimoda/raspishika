@@ -5,7 +5,7 @@ require_relative 'logger'
 
 module Raspishika
   module Cache
-    extend GlobalLogger
+    GlobalLogger.define_named_logger self
 
     DEFAULT_CACHE_EXPIRATION = 15 * 60 # 15 minutes
     @data = {}

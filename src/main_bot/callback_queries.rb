@@ -9,9 +9,9 @@ module Raspishika
       msg_from = query.from
       msg_end = "@#{msg_from.username} #{msg_from.full_name} <callback> #{args.join(' ; ')}"
       if msg_chat.type == 'private'
-        logger.debug "[#{msg_chat.id}] #{msg_end}"
+        logger.info "[#{msg_chat.id}] #{msg_end}"
       else
-        logger.debug "[#{msg_chat.id} @#{msg_chat.username} #{msg_chat.title}] #{msg_end}"
+        logger.info "[#{msg_chat.id} @#{msg_chat.username} #{msg_chat.title}] #{msg_end}"
       end
 
       chat = Chat.find_by tg_id: query.message.chat.id

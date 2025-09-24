@@ -87,9 +87,37 @@ module Raspishika
     end
   end
 
+  class NamedLogger
+    def initialize(logger, progname)
+      @logger = logger
+      @progname = progname
+    end
+
+    %w[debug info warn error fatal unknown].each do |level|
+      define_method level do |msg = nil, &block|
+        return @logger.send(level, @progname, &block) if block
+
+        @logger.send(level, @progname, &-> { msg })
+      end
+    end
+  end
+
   # The module provides delegated method `logger` to the module `Raspishika`.
   # Include it in a class or extend a module with it to have access to the global logger instance.
   module GlobalLogger
+    def self.define_named_logger(class_or_mod)
+      case class_or_mod
+      when Class
+        class_or_mod.define_method :logger do
+          @logger ||= NamedLogger.new Raspishika.logger, class_or_mod.name
+        end
+      when Module
+        class_or_mod.define_singleton_method :logger do
+          @logger ||= NamedLogger.new Raspishika.logger, class_or_mod.name
+        end
+      end
+    end
+
     module_function
 
     def logger

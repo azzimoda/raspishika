@@ -24,6 +24,9 @@ module Raspishika
 
     def log_command_usage(command, successful, response_time)
       command_usages.create(command: command, successful: successful, response_time: response_time)
+      Raspishika.logger.debug('Chat') do
+        "Command usage: #{command} [#{successful ? 'OK' : 'FAIL'}] #{response_time.round(4)}s"
+      end
     end
 
     def group_info
