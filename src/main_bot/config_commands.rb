@@ -7,8 +7,7 @@ module Raspishika
     def configure_group(_message, chat, session, quick: false)
       departments = parser.fetch_departments
       unless departments&.any?
-        send_message(chat_id: chat.tg_id, text: 'Не удалось загрузить отделения',
-                     reply_markup: default_reply_markup(chat.tg_id))
+        send_message(chat_id: chat.tg_id, text: 'Не удалось загрузить отделения', reply_markup: :default)
         return
       end
 
@@ -34,7 +33,7 @@ module Raspishika
         send_message(
           chat_id: chat.tg_id,
           text: 'Не удалось загрузить группы для этого отделения',
-          reply_markup: default_reply_markup(chat.tg_id)
+          reply_markup: :default
         )
         session.default!
         session.save
@@ -69,7 +68,7 @@ module Raspishika
         send_message(
           chat_id: chat.tg_id,
           text: "Теперь #{chat.private? ? 'ты' : 'вы'} в группе #{message.text}",
-          reply_markup: default_reply_markup(chat.id)
+          reply_markup: :default
         )
       end
       session.default!
@@ -124,7 +123,7 @@ module Raspishika
         chat_id: chat.tg_id,
         text: "Ежедневная рассылка настроена на `#{time}`",
         parse_mode: 'Markdown',
-        reply_markup: default_reply_markup(chat.id)
+        reply_markup: :default
       )
     end
 
@@ -133,11 +132,7 @@ module Raspishika
       session.default!
       session.save
 
-      send_message(
-        chat_id: chat.tg_id,
-        text: 'Ежедневная рассылка отключена',
-        reply_markup: default_reply_markup(chat.tg_id)
-      )
+      send_message(chat_id: chat.tg_id, text: 'Ежедневная рассылка отключена', reply_markup: :default)
     end
 
     def enable_pair_sending(_message, chat, session)
@@ -145,11 +140,7 @@ module Raspishika
       session.default!
       session.save
 
-      send_message(
-        chat_id: chat.tg_id,
-        text: 'Рассылка перед парами включена',
-        reply_markup: default_reply_markup(chat.tg_id)
-      )
+      send_message(chat_id: chat.tg_id, text: 'Рассылка перед парами включена', reply_markup: :default)
     end
 
     def disable_pair_sending(_message, chat, session)
@@ -157,11 +148,7 @@ module Raspishika
       session.default!
       session.save
 
-      send_message(
-        chat_id: chat.tg_id,
-        text: 'Рассылка перед парами выключена',
-        reply_markup: default_reply_markup(chat.tg_id)
-      )
+      send_message(chat_id: chat.tg_id, text: 'Рассылка перед парами выключена', reply_markup: :default)
     end
 
     def cancel_action(_message, chat, session)

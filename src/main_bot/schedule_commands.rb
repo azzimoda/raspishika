@@ -28,21 +28,18 @@ module Raspishika
       sent_message = send_loading_message chat.tg_id
 
       schedule = parser.fetch_schedule group_info
-
-      file_path = ImageGenerator.image_path(group_info: group_info)
-      make_photo = -> { Faraday::UploadIO.new(file_path, 'image/png') }
-      reply_markup = default_reply_markup chat.tg_id
+      make_photo = -> { Faraday::UploadIO.new(ImageGenerator.image_path(group_info: group_info), 'image/png') }
 
       kb = make_update_inline_keyboard 'update_week', group_info[:group]
       send_photo(chat_id: chat.tg_id, photo: make_photo.call, reply_markup: { inline_keyboard: kb }.to_json)
       send_message(chat_id: chat.tg_id, text: "Расписание группы: *#{group_info[:group]}*", parse_mode: 'Markdown',
-                   reply_markup: reply_markup)
+                   reply_markup: :default)
       unless schedule
         bot.api.send_message(
           chat_id: chat.tg_id,
           text: 'Не удалось обновить расписание, *картинка может быть не актуальной!* Попробуйте позже.',
           parse_mode: 'Markdown',
-          reply_markup: reply_markup
+          reply_markup: :default
         )
         report("Failed to fetch schedule for #{group_info}", photo: make_photo.call, log: 20)
       end
@@ -155,14 +152,11 @@ module Raspishika
 
       teacher_id = parser.fetch_teachers[teacher_name]
       schedule = parser.fetch_teacher_schedule teacher_id, teacher_name
-
-      file_path = ImageGenerator.image_path teacher_id: teacher_id
-      make_photo = -> { Faraday::UploadIO.new file_path, 'image/png' }
-      reply_markup = default_reply_markup chat.tg_id
+      make_photo = -> { Faraday::UploadIO.new(ImageGenerator.image_path(teacher_id: teacher_id), 'image/png') }
 
       send_photo(chat_id: chat.tg_id, photo: make_photo.call,
                  reply_markup: { inline_keyboard: make_update_inline_keyboard('update_teacher', teacher_id) }.to_json)
-      send_message(chat_id: chat.tg_id, text: "Расписание преподавателя: *#{teacher_name}*", reply_markup: reply_markup,
+      send_message(chat_id: chat.tg_id, text: "Расписание преподавателя: *#{teacher_name}*", reply_markup: :default,
                    parse_mode: 'Markdown')
       bot.api.delete_message(chat_id: chat.tg_id, message_id: loading_message.message_id)
       return if schedule
@@ -171,7 +165,7 @@ module Raspishika
         chat_id: chat.tg_id,
         text: 'Не удалось обновить расписание, *картинка может быть не актуальной!* Попробуйте позже.',
         parse_mode: 'Markdown',
-        reply_markup: reply_markup
+        reply_markup: :default
       )
       report("Failed to fetch schedule for #{teacher_name} (#{teacher_id})", photo: make_photo.call, log: 20)
       throw :fail, true

@@ -182,7 +182,6 @@ module Raspishika
       chat ||= handle_new_chat message
       chat.update username: bot.api.get_chat(chat_id: chat.tg_id).username
       session = Session[chat]
-
       text = message.text.downcase.sub(/@#{@username.downcase}/, '')
       return if handle_command_message message, text, chat, session
 
@@ -197,7 +196,7 @@ module Raspishika
         return chat
       end
 
-      logger.warn 'Failed to create a user'
+      logger.warn 'Failed to create a chat'
       logger.warn 'Trying to update username of already registered chat with the same username...'
       chat0 = Chat.find_by username: tg_chat.username
       if chat0 && chat0.username != (new_username = bot.api.get_chat(chat_id: chat0.tg_id).username)
@@ -212,7 +211,6 @@ module Raspishika
         logger.error 'Failed to create chat after updating username'
       end
 
-      # What's going on?
       msg = "Failed to creade chat record for chat @#{tg_chat.username} ##{tg_chat.id}"
       report msg, log: 20
       logger.error msg
@@ -346,13 +344,7 @@ module Raspishika
     rescue StandardError => e
       log_error chat, e, place: "#handle_command(command_name=#{command_name})"
       chat.log_command_usage(command_name, false, Time.now - Time.at(message.date))
-      send_message(
-        chat_id: message.chat.id,
-        text: 'Произошла ошибка, попробуйте позже.',
-        reply_markup: default_reply_markup(chat.tg_id)
-      )
-    ensure
-      logger.debug "Message handled within #{Time.now - Time.at(message.date)} seconds"
+      send_message(chat_id: message.chat.id, text: 'Произошла ошибка, попробуйте позже.', reply_markup: :default)
     end
 
     def handle_telegram_api_error(err, message)
@@ -402,13 +394,13 @@ module Raspishika
           logger.info "Retrying... #{photo_sending_retries}/3"
           retry
         end
-        send_message(chat_id: kwargs[:chat_id], text: 'Произошла ошибка, попробуйте позже.',
-                     reply_markup: default_reply_markup(kwargs[:chat_id]))
+        send_message(chat_id: kwargs[:chat_id], text: 'Произошла ошибка, попробуйте позже.', reply_markup: :default)
       end
     end
 
-    def send_message(...)
-      bot.api.send_message(...)
+    def send_message(**kwargs)
+      kwargs[:reply_markup] = default_reply_markup kwargs[:chat_id] if kwargs[:reply_markup] == :default
+      bot.api.send_message(**kwargs)
     end
 
     def default_reply_markup(id)

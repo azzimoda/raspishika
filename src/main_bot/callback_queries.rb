@@ -199,8 +199,7 @@ module Raspishika
     end
 
     def send_update_error_message(chat_id)
-      send_message(chat_id: chat_id, text: 'Не удалось обновить расписание, попробуйте позже',
-                   reply_markup: default_reply_markup(chat_id))
+      send_message(chat_id: chat_id, text: 'Не удалось обновить расписание, попробуйте позже', reply_markup: :default)
     end
 
     def edit_message_text(message:, text:, **kwargs)

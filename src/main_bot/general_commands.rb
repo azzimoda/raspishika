@@ -37,15 +37,13 @@ module Raspishika
     private
 
     def start_message(_message, chat, _session)
-      send_message(chat_id: chat.tg_id, text: START_MESSAGE, parse_mode: 'Markdown',
-                   reply_markup: default_reply_markup(chat.tg_id))
+      send_message(chat_id: chat.tg_id, text: START_MESSAGE, parse_mode: 'Markdown', reply_markup: :default)
     end
 
     def help_message(_message, chat, session)
       session.default!
       session.save
-      send_message(chat_id: chat.tg_id, text: HELP_MESSAGE, parse_mode: 'Markdown',
-                   reply_markup: default_reply_markup(chat.tg_id))
+      send_message(chat_id: chat.tg_id, text: HELP_MESSAGE, parse_mode: 'Markdown', reply_markup: :default)
     end
 
     def stop(message, chat, _session)
