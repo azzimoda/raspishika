@@ -12,18 +12,44 @@ module Raspishika
     GlobalLogger.define_named_logger self
 
     MY_COMMANDS = [
-      { command: 'chat', description: 'Get statistics for a chat with given chat ID of username' },
+      { command: 'chat', description: 'Get statistics for a chat with given chat ID or username' },
+      { command: 'group', description: 'Get statistics for a group' },
       { command: 'general', description: 'Get general statistics' },
       { command: 'groups', description: 'Get groups statistics' },
       { command: 'departments', description: 'Get departments statistics' },
       { command: 'new_chats', description: 'Get new chats for last N=1 days' },
       { command: 'commands', description: 'Get commands usage statistics for last N=1 days' },
+      { command: 'performance', description: 'Get commands usage performance for last N=24h' },
       { command: 'config', description: 'Get config statistics' },
       { command: 'log', description: 'Get last log' },
       { command: 'help', description: 'No help' }
     ].freeze
     GROUP_RE = /(\p{L}{2,5})[- ]?(\d{2})[- ]?\(?(9|11)\)?[- ]?(\d)/.freeze
     TIME_ARG_RE = /(\d+)([mhdw])?/.freeze
+
+    class << self
+      def normalize_group_name(all_groups, name)
+        match = name&.match GROUP_RE
+        return unless match
+
+        normalized = "#{match[1].downcase}-#{match[2]}-(#{match[3]})-#{match[4]}"
+        all_groups.find { it.downcase == normalized }
+      end
+
+      def just_group(group)
+        return '' if group.nil? || group.empty?
+
+        if group =~ /^(\S+)-(\d+)-\((\d+)\)-(\d+)$/
+          prefix = ::Regexp.last_match(1)
+          year = ::Regexp.last_match(2)
+          num = ::Regexp.last_match(3)
+          suffix = ::Regexp.last_match(4)
+          format("#{prefix.ljust(5)}-#{year}-(%2d)-#{suffix}", num.to_i)
+        else
+          group
+        end
+      end
+    end
 
     def initialize(main_bot:)
       @main_bot = main_bot
@@ -47,38 +73,38 @@ module Raspishika
       return unless @run
 
       unless @token
-        logger.warn('DevBot') { "Token for statistics bot is not set! It won't run." }
+        logger.warn { "Token for statistics bot is not set! It won't run." }
         return
       end
 
-      logger.info('DevBot') { 'Scheduling statistics sending...' }
+      logger.info { 'Scheduling statistics sending...' }
       @scheduler.cron('0 6/12 * * *') { send_general_statistics }
 
-      logger.info('DevBot') { 'Starting statistics bot...' }
+      logger.info { 'Starting statistics bot...' }
       Telegram::Bot::Client.run(@token) do |bot|
-        logger.info('DevBot') { 'Bot is running.' }
+        logger.info { 'Bot is running.' }
         @bot = bot
         begin
           bot.api.set_my_commands commands: MY_COMMANDS
           bot.listen { handle_message it }
         rescue Telegram::Bot::Exceptions::ResponseError => e
-          logger.error('DevBot') { "Telegram API error: #{e.detailed_message}" }
-          logger.error('DevBot') { 'Retrying...' }
+          logger.error { "Telegram API error: #{e.detailed_message}" }
+          logger.error { 'Retrying...' }
           retry
         rescue StandardError => e
-          logger.error('DevBot') { "Unhandled error in bot listen loop: #{e.detailed_message}" }
-          logger.error('DevBot') { "Backtrace: #{e.backtrace.join("\n")}" }
-          logger.error('DevBot') { 'Retrying...' }
+          logger.error { "Unhandled error in bot listen loop: #{e.detailed_message}" }
+          logger.error { "Backtrace: #{e.backtrace.join("\n")}" }
+          logger.error { 'Retrying...' }
           retry
         end
       end
     rescue Interrupt
       puts
-      logger.warn('DevBot') { 'Keyboard interruption' }
+      logger.warn { 'Keyboard interruption' }
     rescue StandardError => e
-      logger.error('DevBot') { "Unhandled error in bot main method: #{e.detailed_message}" }
-      logger.error('DevBot') { "Backtrace: #{e.backtrace.join("\n")}" }
-      logger.error('DevBot') { 'Retrying...' }
+      logger.error { "Unhandled error in bot main method: #{e.detailed_message}" }
+      logger.error { "Backtrace: #{e.backtrace.join("\n")}" }
+      logger.error { 'Retrying...' }
 
       sleep 5
       retries += 1
@@ -86,34 +112,33 @@ module Raspishika
 
       'Reached maximum retries! Stopping dev bot...'.tap do |msg|
         report "FATAL ERROR: #{msg}", log: 20
-        logger.fatal('DevBot') { msg }
+        logger.fatal { msg }
       end
     end
 
     def report(text, photo: nil, backtrace: nil, log: nil, markdown: false, code: false) # rubocop:disable Metrics/ParameterLists
       return unless @token && @admin_chat_id && @run
 
-      bot.api.send_photo(chat_id: @admin_chat_id, photo: photo) if photo
+      send_photo(photo: photo) if photo
       send_log(lines: log) if log
       send_backtrace backtrace if backtrace
       text = code ? "```\n#{text}\n```" : text
-      bot.api.send_message(chat_id: @admin_chat_id, text: text, parse_mode: markdown || code ? 'Markdown' : nil)
+      send_message(text: text, parse_mode: markdown || code ? 'Markdown' : nil)
     rescue Telegram::Bot::Exceptions::ResponseError => e
-      logger.error('DevBot') { "Telegram API error in `#report`: #{e.detailed_message}" }
-      logger.error('DevBot') { "BACKTRACE: #{e.backtrace.join("\n\t")}" }
+      logger.error { "Telegram API error in `#report`: #{e.detailed_message}" }
+      logger.error { "BACKTRACE: #{e.backtrace.join("\n\t")}" }
     end
 
     private
 
     def send_backtrace(backtrace)
-      bot.api.send_message(chat_id: @admin_chat_id, text: "BACKTRACE:\n```\n#{backtrace}\n```", parse_mode: 'Markdown')
+      send_message(text: "BACKTRACE:\n```\n#{backtrace}\n```", parse_mode: 'Markdown')
     rescue Telegram::Bot::Exceptions::ResponseError => e
       case e.error_code
       when 400
         if e.message =~ /message is too long/
           backtrace.lines.each_slice(20) do |part|
-            bot.api.send_message(chat_id: @admin_chat_id, text: "BACKTRACE:\n```\n#{part.join}\n```",
-                                 parse_mode: 'Markdown')
+            send_message(text: "BACKTRACE:\n```\n#{part.join}\n```", parse_mode: 'Markdown')
           end
         end
       end
@@ -123,57 +148,45 @@ module Raspishika
       return unless message.chat.id == admin_chat_id
 
       case message.text.downcase
-      when %r{/log\s+(\d+)} then send_log lines: Regexp.last_match(1).to_i
       when '/log' then send_log
+      when %r{/log\s+(\d+)} then send_log lines: Regexp.last_match(1).to_i
       when '/general' then send_general_statistics
       when '/departments' then send_departments
-      when %r{/group\s+(.+)} then send_group_stats group: Regexp.last_match(1)
       when '/groups' then send_groups
       when %r{/groups\s+(\d+)} then send_groups limit: Regexp.last_match(1).to_i
       when '/config' then send_config_statistics
       when '/commands' then send_commands_statistics
-      when '/perfomance' then send_perfomans_stats
-      when %r{/perfomance\s+(#{TIME_ARG_RE})} then send_perfomans_stats parse_time_arg Regexp.last_match(1)
+      when '/performance' then send_performance_stats
+      when %r{/performance\s+(#{TIME_ARG_RE})} then send_performance_stats parse_time_arg Regexp.last_match(1)
       when %r{/commands\s+(\d+)} then send_commands_statistics days: Regexp.last_match(1).to_i
       when '/new_chats' then send_new_chats
       when %r{/new_chats\s+(\d+)} then send_new_chats days: Regexp.last_match(1).to_i
-      when %r{/chat\s+(.+)} then send_chat_statistics Regexp.last_match(1)
-      else bot.api.send_message(chat_id: admin_chat_id, text: 'Huh?')
+
+      when %r{/chat(\s+|_)(.+)} then send_chat_statistics Regexp.last_match(2)
+      when %r{/[-_]?(\d+)} then send_chat_statistics Regexp.last_match(1)
+      when %r{/group(\s+|_)(.+)} then send_group_stats group: Regexp.last_match(2)
+      else send_message(text: 'Huh?')
       end
     rescue StandardError => e
-      bot.api.send_message(
-        chat_id: admin_chat_id, text: "Unlandled error in `#handle_message`: #{e.detailed_message}"
-      )
-      bot.api.send_message(
-        chat_id: admin_chat_id, text: "```\n#{e.backtrace.join("\n")}\n```", parse_mode: 'Markdown'
-      )
+      send_message(text: "Unlandled error in `#handle_message`: #{e.detailed_message}")
+      send_message(text: "```\n#{e.backtrace.join("\n")}\n```", parse_mode: 'Markdown')
     end
 
-    def parse_time_arg(str, default_masure: 'h')
-      m = str.match(TIME_ARG_RE)
-      return unless m
-
-      a =
-        case m[2]
-        when 'm' then 60 # Minutes
-        when 'h' then 60 * 60 # Hours
-        when 'd' then 24 * 60 * 60 # Days
-        when 'w' then 7 * 24 * 60 * 60 # Weeks
-        end
-      m[1].to_i * a
+    def parse_time_arg(str, default_measure: 'h')
+      if (m = str.match(TIME_ARG_RE))
+        m[1].to_i * case m[2] || default_measure
+                    when 'm' then 60 # Minutes
+                    when 'h' then 60 * 60 # Hours
+                    when 'd' then 24 * 60 * 60 # Days
+                    when 'w' then 7 * 24 * 60 * 60 # Weeks
+                    end
+      end
     end
 
     def send_log(lines: 20)
       log = last_log(lines: lines)
-      if log && !log.empty?
-        bot.api.send_message(
-          chat_id: admin_chat_id,
-          text: "```\n#{log}\n```",
-          parse_mode: 'Markdown'
-        )
-      else
-        bot.api.send_message(chat_id: admin_chat_id, text: 'No log.')
-      end
+      text = log && !log.empty? ? "```\n#{log}\n```" : 'No log.'
+      send_message text: text, parse_mode: 'Markdown'
     end
 
     def last_log(lines: 20)
@@ -199,7 +212,7 @@ module Raspishika
 
         #{departments.map { |k, v| format('`%s => %2d G, %2d PC, %2d GC`', k, *v) }.join("\n")}
       MARKDOWN
-      bot.api.send_message(chat_id: @admin_chat_id, text: text, parse_mode: 'Markdown')
+      send_message(text: text, parse_mode: 'Markdown')
     end
 
     def send_group_stats(group: nil)
@@ -211,7 +224,7 @@ module Raspishika
 
       chats = Chat.where group: group
 
-      bot.api.send_message(chat_id: @admin_chat_id, text: <<~MARKDOWN, parse_mode: 'Markdown')
+      send_message(text: <<~MARKDOWN, parse_mode: 'Markdown')
         *Group:* #{group}
         *Private chats:* #{chats.count(&:private?)}
 
@@ -237,7 +250,7 @@ module Raspishika
         #{groups.map { |g, v| "#{g.ljust(15)} => #{v[0].to_s.rjust(2)} PC, #{v[1].to_s.rjust(2)} GC" }.join("\n")}
         ```
       MARKDOWN
-      bot.api.send_message(chat_id: @admin_chat_id, text: text, parse_mode: 'Markdown')
+      send_message(text: text, parse_mode: 'Markdown')
     end
 
     def send_general_statistics
@@ -265,7 +278,7 @@ module Raspishika
       total_fail_commands_week = week_commands.where(successful: false).count
       schedule_commands_week = week_commands.where("command IN ('/week', '/tomorrow', '/left')").count
 
-      bot.api.send_message(chat_id: admin_chat_id, parse_mode: 'Markdown', text: <<~MARKDOWN)
+      send_message(parse_mode: 'Markdown', text: <<~MARKDOWN)
         *GENERAL*
 
         *Total chats:* #{total_chats}
@@ -280,7 +293,7 @@ module Raspishika
         (/groups)
         (/departments)
       MARKDOWN
-      bot.api.send_message(chat_id: admin_chat_id, parse_mode: 'Markdown', text: <<~MARKDOWN)
+      send_message(parse_mode: 'Markdown', text: <<~MARKDOWN)
         *LAST 24 HOURS*
 
         *New chats:* #{statistics[:new_chats].size}
@@ -290,7 +303,7 @@ module Raspishika
         *Schedule commands used:* #{schedule_commands}
         (/commands)
       MARKDOWN
-      bot.api.send_message(chat_id: admin_chat_id, parse_mode: 'Markdown', text: <<~MARKDOWN)
+      send_message(parse_mode: 'Markdown', text: <<~MARKDOWN)
         *LAST WEEK*
 
         *Active chats:* #{active_chats_week}
@@ -319,7 +332,7 @@ module Raspishika
       MARKDOWN
 
       text = 'No new chats for the period.' if text.strip.empty?
-      bot.api.send_message(chat_id: @admin_chat_id, text: text, parse_mode: 'Markdown')
+      send_message(text: text, parse_mode: 'Markdown')
     end
 
     def send_config_statistics
@@ -346,7 +359,7 @@ module Raspishika
 
         #{daily_sending.join("\n")}
       MARKDOWN
-      bot.api.send_message(chat_id: admin_chat_id, text: text, parse_mode: 'Markdown')
+      send_message(text: text, parse_mode: 'Markdown')
     end
 
     def send_commands_statistics(days: 7)
@@ -359,10 +372,10 @@ module Raspishika
       command_usages = command_usages.group_by(&:command).sort_by(&:first)
 
       text = command_usages.map { |k, u| "`#{k.to_s.ljust(20)} => #{u.size.to_s.rjust(5)}`" }.join("\n")
-      bot.api.send_message(chat_id: admin_chat_id, text: text, parse_mode: 'Markdown')
+      send_message(text: text, parse_mode: 'Markdown')
     end
 
-    def send_perfomans_stats(period = 24 * 60 * 60)
+    def send_performance_stats(period = 24 * 60 * 60)
       commands = period.zero? ? CommandUsage.all : CommandUsage.where(created_at: (Time.now - period)..)
       avg_response_time_by_command = commands.group(:command).average(:response_time)
       mins = period / 60
@@ -386,7 +399,7 @@ module Raspishika
         end
 
       if chat_data.nil?
-        bot.api.send_message(chat_id: admin_chat_id, text: "Chat not found: #{id_or_username}")
+        send_message(text: "Chat not found: #{id_or_username}")
         return
       end
 
@@ -399,7 +412,7 @@ module Raspishika
         *Daily sending:* #{chat_data.daily_sending_time}
         *Pair sending:* #{chat_data.pair_sending}
       MARKDOWN
-      bot.api.send_message(chat_id: admin_chat_id, text: text, parse_mode: 'Markdown')
+      send_message(text: text, parse_mode: 'Markdown')
     end
 
     def send_message(**kwargs)
@@ -461,28 +474,6 @@ module Raspishika
         when '/daily_sending' then :daily_sending
         else :other
         end
-      end
-    end
-
-    def self.normalize_group_name(all_groups, name)
-      match = name&.match(GROUP_RE)
-      return unless match
-
-      normalized = "#{match[1].downcase}-#{match[2]}-(#{match[3]})-#{match[4]}"
-      all_groups.find { it.downcase == normalized }
-    end
-
-    def self.just_group(group)
-      return '' if group.nil? || group.empty?
-
-      if group =~ /^(\S+)-(\d+)-\((\d+)\)-(\d+)$/
-        prefix = ::Regexp.last_match(1)
-        year = ::Regexp.last_match(2)
-        num = ::Regexp.last_match(3)
-        suffix = ::Regexp.last_match(4)
-        format("#{prefix.ljust(5)}-#{year}-(%2d)-#{suffix}", num.to_i)
-      else
-        group
       end
     end
   end
