@@ -7,20 +7,23 @@ module Raspishika
   module Cache
     GlobalLogger.define_named_logger self
 
-    DEFAULT_CACHE_EXPIRATION = 15 * 60 # 15 minutes
+    DEFAULT_TTL = Config[:cache][:default_ttl] * 60
+    STORE_FILE = File.expand_path('../data/cache.pstore', __dir__).freeze
+    FileUtils.mkdir_p File.dirname STORE_FILE
+
     @data = {}
-    file = File.expand_path '../data/cache.pstore', __dir__
-    FileUtils.mkdir_p File.dirname file
-    @store = PStore.new file
+    @store = PStore.new STORE_FILE
     @cache_mutex = Mutex.new
     @store_mutex = Mutex.new
 
+    module_function
+
     # If `expires_in` is `nil`, the cache will not expire. If `expires_in` is 0, the will be always expired.
-    def self.fetch(
-      key, expires_in: DEFAULT_CACHE_EXPIRATION, allow_nil: false, file: false, log: true, unsafe: false, &block
+    def fetch(
+      key, expires_in: DEFAULT_TTL, allow_nil: false, file: false, log: true, unsafe: false, &block
     )
-      if DEFAULT_CACHE_EXPIRATION.zero?
-        logger.debug "Skipping caching for #{key.inspect} because of environment configuration..." if log
+      if DEFAULT_TTL.zero?
+        logger.debug 'Cache is disabled' if log
         return block.call
       end
 
@@ -31,7 +34,7 @@ module Raspishika
       end
     end
 
-    def self.transaction(key, expires_in:, allow_nil:, file:, log: true, &block)
+    def transaction(key, expires_in:, allow_nil:, file:, log: true, &block)
       entry = get_entry key, file: file
 
       if actual_entry? entry, expires_in: expires_in, allow_nil: allow_nil
@@ -43,24 +46,24 @@ module Raspishika
       end
     end
 
-    def self.actual?(key, expires_in: DEFAULT_CACHE_EXPIRATION, allow_nil: false, file: false)
+    def actual?(key, expires_in: DEFAULT_TTL, allow_nil: false, file: false)
       entry = get_entry key, file: file
       actual_entry? entry, expires_in: expires_in, allow_nil: allow_nil
     end
 
-    def self.actual_entry?(entry, expires_in:, allow_nil: false)
+    def actual_entry?(entry, expires_in:, allow_nil: false)
       entry && (allow_nil || entry[:value]) && (expires_in.nil? || Time.now - entry[:timestamp] < expires_in)
     end
 
     # If `expires_in` is `nil`, the cache will not expire. If `expires_in` is 0, the will be always expired.
-    def self.get(key, file: false, expires_in: nil)
+    def get(key, file: false, expires_in: nil)
       entry = get_entry(key, file: file)
       return unless actual_entry? entry, expires_in: expires_in
 
       entry[:value]
     end
 
-    def self.get_entry(key, file: false)
+    def get_entry(key, file: false)
       @store_mutex.synchronize do
         if file
           @store.transaction(true) { @store[key] if @store.root? key }
@@ -70,7 +73,7 @@ module Raspishika
       end
     end
 
-    def self.set(key, value, file: false)
+    def set(key, value, file: false)
       new_cache = { value: value, timestamp: Time.now }
       @store_mutex.synchronize do
         if file
@@ -81,7 +84,7 @@ module Raspishika
       end
     end
 
-    def self.clear
+    def clear_memory
       @store_mutex.synchronize { @data.clear }
     end
   end

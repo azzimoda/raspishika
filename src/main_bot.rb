@@ -25,6 +25,7 @@ module Raspishika
     TOKEN = Config[:bot][:token].freeze
     THEAD_POOL_SIZE = Config[:bot][:thread_pool_size].freeze
     MAX_RETRIES = Config[:bot][:max_retries].freeze
+    SKIP_MESSAGE_TIME = Config[:bot][:skip_message_time].freeze * 60
 
     LABELS = {
       left: 'Оставшиеся пары',
@@ -165,7 +166,7 @@ module Raspishika
     end
 
     def handle_text_message(message)
-      return if Time.at(message.date) < Time.now - 60 * 60 # Skip messages sent more than 1 hour ago.
+      return if Time.at(message.date) < Time.now - SKIP_MESSAGE_TIME # Skip messages sent too long ago.
       return unless message.text
 
       short_text = message.text.size > 32 ? "#{message.text[0...32]}…" : message.text
