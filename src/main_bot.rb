@@ -67,6 +67,7 @@ module Raspishika
       { command: 'pair_sending_off', description: 'Выкл. уведомления перед парами' },
 
       { command: 'set_group', description: 'Изменить группу' },
+      { command: 'access', description: 'Настроить доступ к командам' },
 
       { command: 'cancel', description: 'Отменить действие' },
       { command: 'stop', description: 'Остановить бота и удалить данные о себе' },
