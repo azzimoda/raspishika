@@ -31,6 +31,7 @@ module Raspishika
       t.string :group
       t.string :daily_sending_time
       t.boolean :pair_sending, default: false
+      t.integer :access_level, default: 0
 
       t.timestamps
     end

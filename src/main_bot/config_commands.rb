@@ -151,12 +151,23 @@ module Raspishika
       send_message(chat_id: chat.tg_id, text: 'Рассылка перед парами выключена', reply_markup: :default)
     end
 
+    def set_access_level(chat, session, level)
+      unless level.is_a?(Integer) && [0, 1, 2].include?(level)
+        raise ArgumentError, "Invalid level argument: #{level.inspect} (#{level.class})"
+      end
+
+      chat.update access_level: level
+      session.default!
+      session.save
+
+      send_message chat_id: chat.tg_id, text: "Текущий уровень доступа: #{level}", reply_markup: :default
+    end
+
     def cancel_action(_message, chat, session)
-      reply_markup = default_reply_markup chat.tg_id
       if session.default?
-        send_message(chat_id: chat.tg_id, text: 'Нечего отменять', reply_markup: reply_markup)
+        send_message(chat_id: chat.tg_id, text: 'Нечего отменять', reply_markup: :default)
       else
-        send_message(chat_id: chat.tg_id, text: 'Действие отменено', reply_markup: reply_markup)
+        send_message(chat_id: chat.tg_id, text: 'Действие отменено', reply_markup: :default)
         session.default!
         session.save
       end

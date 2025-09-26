@@ -97,6 +97,10 @@ module Raspishika
       @state = State::SELECTING_TEACHER
     end
 
+    def any_settings?
+      settings? || setting_daily_sending? || !selecting_quick? && (selecting_department? || selecting_group?)
+    end
+
     def settings?
       state == State::SETTINGS
     end

@@ -27,6 +27,7 @@ module Raspishika
     MAX_RETRIES = Config[:bot][:max_retries].freeze
     SKIP_MESSAGE_TIME = Config[:bot][:skip_message_time].freeze * 60
 
+    STRICT_GROUP_RE = /\p{L}{2,5}-\d{2}-\((9|11)\)-\d/.freeze
     LABELS = {
       left: 'Оставшиеся пары',
       tomorrow: 'Завтра',
@@ -71,6 +72,10 @@ module Raspishika
       { command: 'stop', description: 'Остановить бота и удалить данные о себе' },
       { command: 'help', description: 'Помощь' },
       { command: 'start', description: 'Запуск бота' }
+    ].freeze
+    CONFIG_COMMANDS = [
+      '/set_group', '/daily_sending', '/daily_sending_off', '/pair_sending_on', '/pair_sending_off',
+      *LABELS.values_at(:settings, :my_group, :daily_sending, :disable, :pair_sending_on, :pair_sending_off)
     ].freeze
 
     def initialize
@@ -184,7 +189,13 @@ module Raspishika
       chat.update username: bot.api.get_chat(chat_id: chat.tg_id).username
       session = Session[chat]
       text = message.text.downcase.sub(/@#{@username.downcase}/, '')
-      return if handle_command_message message, text, chat, session
+
+      unless allowed_command? chat, session, message.from.id, text
+        logger.debug "Command was restricted because of access level: #{chat.access_level}"
+        return
+      end
+
+      return unless handle_command_message(message, text, chat, session) == :no
 
       handle_button_message message, text, chat, session
     end
@@ -237,7 +248,20 @@ module Raspishika
         handle_command(message, chat, text) { disable_daily_sending message, chat, session }
       when '/pair_sending_on' then handle_command(message, chat, text) { enable_pair_sending message, chat, session }
       when '/pair_sending_off' then handle_command(message, chat, text) { disable_pair_sending message, chat, session }
+      when %r{/access\s+(\d)}
+        handle_command(message, chat, '/access') { set_access_level chat, session, Regexp.last_match(1).to_i }
+      when %r{/access}
+        handle_command(message, chat, '/access') do
+          send_message(chat_id: chat.tg_id, text: <<~TEXT, parse_mode: 'Markdown')
+            Текущий уровень доступа: #{chat.access_level}
+
+            `/access 0` — нет ограничений
+            `/access 1` — настройки только для админов
+            `/access 2` — все команды только для админов
+          TEXT
+        end
       when '/cancel' then handle_command(message, chat, '/cancel') { cancel_action message, chat, session }
+      else :no
       end
     end
 
@@ -390,9 +414,9 @@ module Raspishika
       begin
         bot.api.send_photo(*args, **kwargs)
       rescue Net::ReadTimeout, Net::OpenTimeout, Faraday::ConnectionFailed, Faraday::TimeoutError => e
-        logger.error "Failed to send photo to ##{kwargs[:chat_id]}: #{e.detailed_message}"
+        logger.warn "Failed to send photo to ##{kwargs[:chat_id]}: #{e.detailed_message}"
         if (photo_sending_retries += 1) < 3
-          logger.info "Retrying... #{photo_sending_retries}/3"
+          logger.warn "Retrying... #{photo_sending_retries}/3"
           retry
         end
         send_message(chat_id: kwargs[:chat_id], text: 'Произошла ошибка, попробуйте позже.', reply_markup: :default)
@@ -406,6 +430,26 @@ module Raspishika
 
     def default_reply_markup(id)
       id.to_s.to_i.positive? ? DEFAULT_REPLY_MARKUP : { remove_keyboard: true }.to_json
+    end
+
+    def allowed_command?(chat, session, user_id, command)
+      chat.private? || chat.access_level.zero? ||
+        case p chat.access_level
+        when 1 then !config_command?(command, session) || admin?(chat.tg_id, user_id) # Config for admins only
+        when 2 then admin?(chat.tg_id, user_id) # All command for admins only
+        else
+          logger.warn "Unexpected `access_level`: #{chat.access_level}; chat: #{chat.inspect}"
+          true
+        end
+    end
+
+    def admin?(chat_id, user_id)
+      bot.api.get_chat_administrators(chat_id: chat_id).any? { it.user.id == user_id }
+    end
+
+    def config_command?(command, session)
+      CONFIG_COMMANDS.include?(command.downcase) || command.downcase =~ /access|\d\d?:\d\d/ ||
+        command =~ /cancel|отмена|отделение|#{STRICT_GROUP_RE}/ && session.any_settings?
     end
   end
 end
