@@ -56,9 +56,7 @@ module Raspishika
         logger.info 'Fetching departments...'
 
         uri = URI.parse DEPARTMENTS_PAGE_URL
-        resp = Net::HTTP.start(uri.host, uri.port, use_ssl: true) do |http|
-          http.request Net::HTTP::Get.new(uri, generate_headers)
-        end
+        resp = net_request uri
         raise "Failed to load departments: #{resp.inspect}" if resp.code.to_i != 200
 
         Nokogiri::HTML(resp.body).css('ul.mod-menu li.col-lg.col-md-6 a').map do |link|
@@ -74,6 +72,11 @@ module Raspishika
       nil
     end
 
+    # Scrapes groups data of each department.
+    #
+    # @param unsafe_cache [Boolean] whether use unsafe caching; defaults to false
+    #
+    # @return [Hash] parsed groups data by department name
     def fetch_all_groups(unsafe_cache: false)
       departments_urls = fetch_departments
       Cache.fetch :groups, expires_in: LONG_CACHE_TIME, file: true, unsafe: unsafe_cache do
@@ -84,20 +87,25 @@ module Raspishika
       end
     end
 
-    def fetch_groups(department_url, department_name, unsafe_cache: false)
-      raise ArgumentError, 'department_url is `nil`' unless department_url
+    # Scrapes groups data of give department.
+    #
+    # @param url [String] URL of department's page
+    # @param name [String] department's name
+    #
+    # @return [Hash] parsed groups data
+    # @raise [ArgumentError] when when URL is `nil`
+    # @raise [RuntimeError] when fails to parse HTML
+    def fetch_groups(url, name, unsafe_cache: false)
+      raise ArgumentError, 'URL is empty' unless url
 
-      Cache.fetch :"groups_#{department_name}", expires_in: LONG_CACHE_TIME, file: true, unsafe: unsafe_cache do
-        logger.info "Fetching groups for #{department_url}"
+      Cache.fetch :"groups_#{name}", expires_in: LONG_CACHE_TIME, file: true, unsafe: unsafe_cache do
+        logger.info "Fetching groups for #{url}"
 
         options = with_page do |page|
           try_timeout do
-            page.goto(department_url, timeout: TIMEOUT * 1000)
-
-            iframe = page.wait_for_selector('div.com-content-article__body iframe', timeout: TIMEOUT * 1000)
-            frame = iframe.content_frame
-
-            select = frame.wait_for_selector('#groups', timeout: TIMEOUT * 1000)
+            page.goto url
+            frame = page.wait_for_selector('div.com-content-article__body iframe').content_frame
+            select = frame.wait_for_selector('#groups')
             raise 'Failed to find groups selector' unless select
 
             frame.eval_on_selector_all(
@@ -155,6 +163,13 @@ module Raspishika
       schedule
     end
 
+    # Scrapes schedule table from given URL with browser.
+    #
+    # @param url [String] URL of schedule page
+    # @param teacher [Boolean] whether parse schedule as teacher's; defaults to false
+    #
+    # @return [Array] raw schedule as a HTML table
+    # @raise [RuntimeError] if failed to parse schedule and `raise_on_failure` is `true`
     def scrape_schedule_with_browser(url, teacher: false, **kwargs)
       logger.debug "URL: #{url}"
 
@@ -188,7 +203,7 @@ module Raspishika
       nil
     end
 
-    # Scrapes group's or teacher's schedule table from given URL.
+    # Scrapes schedule table from given URL.
     #
     # @param url [String] URL of schedule page
     # @param teacher [Boolean] whether parse schedule as teacher's; defaults to false
@@ -203,9 +218,7 @@ module Raspishika
       uri = URI.parse url
       retries = 0
       resp = loop do
-        resp = Net::HTTP.start(uri.host, uri.port, use_ssl: true) do |http|
-          http.request Net::HTTP::Get.new(uri, generate_headers.tap { logger.debug it['User-Agent'] })
-        end
+        resp = net_request uri
         break resp if resp.code == '200'
 
         logger.warn "Failed to load schedule page #{url}: #{resp.inspect}"
@@ -227,6 +240,16 @@ module Raspishika
       schedule
     ensure
       File.write(File.join(DEBUG_DIR, 'schedule.html'), html)
+    end
+
+    # Performs HTTP GET request with given URI and generated headers.
+    #
+    # @param uri [URI::HTTP] URI of request
+    #
+    # @return [Net::HTTPResponse] response of request
+    def net_request(uri)
+      # TODO: Implement retrying here.
+      Net::HTTP.start(uri.host, uri.port, use_ssl: true) { it.request Net::HTTP::Get.new(uri, generate_headers) }
     end
 
     def fix_encoding(text)
@@ -321,23 +344,25 @@ module Raspishika
       end
     end
 
+    # Parses schedule from given HTML table.
+    #
+    # @param html [String] HTML code of schedule table
+    # @param teacher [Boolean] whether parse schedule as teacher's schedule
+    #
+    # @return [Array] schedule table
+    # @raise [RuntimeError] when fails to parse schedule table
     def parse_schedule_table(html, teacher: false)
       table = Nokogiri::HTML(html).at_css('table#main_table')
       unless table
         logger.warn "Table is nil: #{table.inspect}"
-        return nil
+        return
       end
 
       logger.info 'Parsing html table...'
 
-      header_row = table.css('tr').first
-      day_headers = header_row.css('td:nth-child(n+3)').map do |header|
+      day_headers = table.css('tr').first.css('td:nth-child(n+3)').map do |header|
         parts = header.children.map { |node| node.text.strip }.reject(&:empty?)
-        {
-          date: parts[0]&.strip,
-          weekday: parts[1]&.strip,
-          week_type: parts[2]&.strip
-        }
+        { date: parts[0]&.strip, weekday: parts[1]&.strip, week_type: parts[2]&.strip }
       end
 
       table.css('tr.para_num:not(:first-child)').each_with_object([]) do |row, schedule|
@@ -345,17 +370,20 @@ module Raspishika
       end
     end
 
+    # Parses given row of schedule table.
+    #
+    # @param row [Nokogiri::XML::Element] HTML table row
+    #
+    # @return [Array] parsed time slot
+    # @raise [RuntimeError] when fails to parse time
     def parse_row(row, day_headers, teacher: false)
       return if row.css('th').any? # TODO: Remember why I do this.
 
-      time_cell = row.at_css('td:first-child')
-      raise 'Failed to find time cell' unless time_cell
-
-      pair_number = time_cell.text.strip
+      time_cell = row.at_css 'td:first-child'
       time_range = row.at_css 'td:nth-child(2)'
-      raise 'Failed to parse time rage' unless time_range
+      raise "Failed to parse time: #{row.pretty_inspect}" unless time_cell && time_range
 
-      time_slot = { pair_number: pair_number, time_range: time_range.text.strip, days: [] }
+      time_slot = { pair_number: html_to_text(time_cell), time_range: html_to_text(time_range), days: [] }
       row.css('td:nth-child(n+3)').each_with_index do |day_cell, day_index|
         day_info = day_headers[day_index] || {}
         day_info[:replaced] = day_cell.css('table.zamena').any?
@@ -365,36 +393,25 @@ module Raspishika
       time_slot
     end
 
+    # Parses day entry from given schedule tables cell.
+    #
+    # @param day_cell [Nokogiri::XML::Element] HTML element of schedule table cell
+    # @param day_info [Hash] previously parsed information about the day
+    # @param teacher [Boolean] whether parse day cell as cell of teacher schedule table
+    #
+    # @return [Hash] parsed pair data
     def parse_day_entry(day_cell, day_info, teacher: false)
-      css_class = day_cell['class']
       day_info = day_info.merge \
-        case
-        when no_pair?(day_cell) || cancelled?(day_cell) then make_day :empty
-        when css_class&.include?('head_urok_iga') then make_day :iga, content: html_to_text(day_cell)
-        when css_class&.include?('event') then make_day :event, content: html_to_text(day_cell)
-        when css_class&.include?('head_urok_praktik') then make_day :practice, content: html_to_text(day_cell)
-        when css_class&.include?('head_urok_session') then make_day :session, content: html_to_text(day_cell)
-        when css_class&.include?('head_urok_kanik') then make_day :vacation, content: html_to_text(day_cell)
-        when exam?(day_cell)
-          make_day(
-            :exam,
-            title: html_to_text(day_cell.at_css('.head_ekz')),
-            content: { discipline: day_cell.at_css('.disc'), teacher: html_to_text(day_cell.at_css('.prep')),
-                       classroom: html_to_text(day_cell.at_css('.cab')) }
-          )
-        when day_info[:consultation]
-          make_day(
-            :consultation,
-            title: html_to_text(day_cell.at_css('.head_ekz')),
-            content: { discipline: day_cell.at_css('.disc'), teacher: html_to_text(day_cell.at_css('.prep')),
-                       classroom: html_to_text(day_cell.at_css('.cab')) }
-          )
-        else
-          make_day(
-            :subject,
-            content: { discipline: day_cell.at_css('.disc'), teacher: html_to_text(day_cell.at_css('.prep')),
-                       classroom: html_to_text(day_cell.at_css('.cab')) }
-          )
+        case day_entry_type day_cell, day_info
+        when :empty        then make_day :empty
+        when :iga          then make_day :iga, content: html_to_text(day_cell)
+        when :event        then make_day :event, content: html_to_text(day_cell)
+        when :practice     then make_day :practice, content: html_to_text(day_cell)
+        when :session      then make_day :session, content: html_to_text(day_cell)
+        when :vacation     then make_day :vacation, content: html_to_text(day_cell)
+        when :exam         then parse_exam day_cell
+        when :consultation then parse_consultation day_cell
+        else parse_subject day_cell
         end
 
       if day_info.dig(:content, :discipline)
@@ -409,6 +426,53 @@ module Raspishika
         end
       end
       day_info
+    end
+
+    # Determines type of pair by given day cell.
+    #
+    # @param day_cell [Nokogiri::XML::Element] HTML element of schedule table cell
+    # @param day_info [Hash] previously parsed information about the day
+    #
+    # @return [Symbol] determined pair type
+    def day_entry_type(day_cell, day_info)
+      css_class = day_cell['class']
+      if no_pair?(day_cell) || cancelled?(day_cell)  then :empty
+      elsif css_class&.include?('head_urok_iga')     then :iga
+      elsif css_class&.include?('event')             then :event
+      elsif css_class&.include?('head_urok_praktik') then :practice
+      elsif css_class&.include?('head_urok_session') then :session
+      elsif css_class&.include?('head_urok_kanik')   then :vacation
+      elsif exam? day_cell                           then :exam
+      elsif day_info[:consultation]                  then :consultation
+      else
+        :subject
+      end
+    end
+
+    def parse_exam(day_cell)
+      make_day(
+        :exam,
+        title: html_to_text(day_cell.at_css('.head_ekz')),
+        content: { discipline: day_cell.at_css('.disc'), teacher: html_to_text(day_cell.at_css('.prep')),
+                   classroom: html_to_text(day_cell.at_css('.cab')) }
+      )
+    end
+
+    def parse_consultation(day_cell)
+      make_day(
+        :consultation,
+        title: html_to_text(day_cell.at_css('.head_ekz')),
+        content: { discipline: day_cell.at_css('.disc'), teacher: html_to_text(day_cell.at_css('.prep')),
+                   classroom: html_to_text(day_cell.at_css('.cab')) }
+      )
+    end
+
+    def parse_subject(day_cell)
+      make_day(
+        :subject,
+        content: { discipline: day_cell.at_css('.disc'), teacher: html_to_text(day_cell.at_css('.prep')),
+                   classroom: html_to_text(day_cell.at_css('.cab')) }
+      )
     end
 
     def no_pair?(day_cell)
