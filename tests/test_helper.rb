@@ -8,8 +8,7 @@ OPTIONS = { 'log_level' => 'debug' }.freeze
 require_relative '../src/main_bot'
 
 def initialize_bot(**options)
-  bot = Raspishika::Bot.new
-  bot.stub
+  Raspishika::Bot.new
 end
 
 def initialize_parser
