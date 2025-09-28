@@ -5,7 +5,6 @@ require 'net/http'
 require 'open-uri'
 require 'uri'
 require 'cgi'
-require 'playwright' # NOTE: Playwright is synchronouse YET
 require 'timeout'
 require 'pp'
 require 'user_agent_randomizer'
@@ -13,6 +12,7 @@ require 'fileutils'
 
 require_relative 'logger'
 require_relative 'cache'
+require_relative 'browser'
 require_relative 'image_generator'
 
 module Raspishika
@@ -29,11 +29,10 @@ module Raspishika
 
     FileUtils.mkdir_p DEBUG_DIR
 
+    attr_reader :browser
+
     def initialize
-      @thread = nil
-      @browser = nil
-      @ready = false
-      @mutex = Mutex.new
+      @browser = BrowserManager.new
 
       @schedule_scraper = method select_scraper Config[:parser][:fetch_schedule_with_browser]
       @teacher_schedule_scraper = method select_scraper Config[:parser][:fetch_teacher_schedule_with_browser]
@@ -41,56 +40,9 @@ module Raspishika
       logger.debug "@schedule_scraper: #{@schedule_scraper.name}"
       logger.debug "@teacher_schedule_scraper: #{@teacher_schedule_scraper.name}"
     end
-    attr_accessor :ready
-
-    def ready?
-      @ready
-    end
-
-    def initialize_browser_thread
-      unless Config[:parser][:browser][:threaded]
-        logger.info 'Browser thread initialization skipped'
-        return
-      end
-
-      @thread = Thread.new do
-        Playwright.create(playwright_cli_executable_path: 'npx playwright') do |playwright|
-          @browser = playwright.chromium.launch(headless: true)
-          logger.info 'Browser is ready'
-          @ready = true
-          sleep 0.1 while @browser.connected?
-        end
-        logger.info 'Browser thread is stopped'
-      end
-    end
-
-    def stop_browser_thread
-      return unless @browser && @thread
-
-      logger.info 'Stopping browser thread...'
-      @browser.close
-      @thread.join
-    end
-
-    def with_browser(&block)
-      if @browser && @thread && @ready
-        @mutex.synchronize { block.call @browser }
-      else
-        logger.info 'Using browser...'
-        Playwright.create(playwright_cli_executable_path: 'npx playwright') do |playwright|
-          browser = playwright.chromium.launch headless: true, timeout: TIMEOUT * 1000
-          block.call browser
-        end
-      end
-    end
 
     def with_page(&block)
-      with_browser do |browser|
-        page = browser.new_page
-        block.call page
-      ensure
-        page.close
-      end
+      @browser.with_page(&block)
     end
 
     # Scrapes names of departments and links to their pages.
@@ -167,29 +119,35 @@ module Raspishika
       nil
     end
 
+    # Scrapes group schedule table with caching and retrying.
+    #
+    # @param group_info [Hash] group's and department's name
+    #
+    # @return [Array] group schedule as HTML table
+    # @raise [ArgumentError] when `group_info` doesn't contain `:department` and `:group`
+    # @raise [RuntimeError] when fails to get `sid` and `gr` for given group
     def fetch_schedule(group_info)
-      unless group_info[:department] && group_info[:group]
+      unless group_info.is_a?(Hash) && group_info[:department] && group_info[:group]
         raise ArgumentError, "Wrong group data: #{group_info.inspect}"
       end
 
-      if (data = fetch_all_groups.dig(group_info[:department], group_info[:group]))
+      groups = fetch_all_groups
+      if (data = groups.dig(group_info[:department], group_info[:group]))
         group_info = group_info.merge data
       else
+        logger.error "Groups: #{groups.pretty_inspect}"
         raise "Failed to get sid and gr by department and group names: #{group_info.inspect}"
       end
 
       schedule = Cache.fetch :"schedule_#{group_info[:sid]}_#{group_info[:gr]}" do
         logger.info "Fetching schedule for #{group_info}"
 
-        url = make_group_schedule_url group_info
-        if (schedule = @schedule_scraper.call(url, times: 2, raise_on_failure: false))
+        if (schedule = @schedule_scraper.call(make_group_schedule_url(group_info), times: 2, raise_on_failure: false))
           schedule
         else
           logger.warn 'Failed to load page, trying to update department ID...'
-
-          group_info = group_info.merge update_department_id group_info, unsafe_cache: true
-          url = make_group_schedule_url group_info
-          @schedule_scraper.call url # Second try with updated department ID
+          group_info = group_info.merge(update_department_id(group_info, unsafe_cache: true))
+          @schedule_scraper.call make_group_schedule_url group_info # Second try with updated department ID
         end
       end
 

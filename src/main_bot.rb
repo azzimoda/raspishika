@@ -114,8 +114,8 @@ module Raspishika
       @dev_bot_thread = Thread.new(@dev_bot, &:run)
 
       if Config[:parser][:browser][:threaded]
-        @parser.initialize_browser_thread
-        sleep 0.1 until @parser.ready?
+        @parser.browser.run
+        sleep 0.1 until @parser.browser.ready?
       end
 
       schedule_pair_sending
@@ -152,7 +152,7 @@ module Raspishika
 
       @dev_bot_thread&.kill
       @sending_thread&.join
-      @parser.stop_browser_thread
+      @parser.browser.stop
 
       @thread_pool.shutdown
       @thread_pool.wait_for_termination 60
@@ -308,12 +308,10 @@ module Raspishika
         handle_command(message, chat, '/teacher', ok_stats: false) { ask_for_teacher message, chat, session }
 
       when ->(_) { session.selecting_teacher? }
-        if validate_teacher_name text
+        if validate_teacher_name message.text
           handle_command(message, chat, '/teacher') { send_teacher_schedule message, chat, session }
         else
-          handle_command(message, chat, '/teacher', ok_stats: false) do
-            reask_for_teacher message, chat, session, text
-          end
+          handle_command(message, chat, '/teacher', ok_stats: false) { reask_for_teacher message, chat, session, text }
         end
 
       when ->(t) { session.default? && t == LABELS[:settings].downcase }
