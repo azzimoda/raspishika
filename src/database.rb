@@ -3,10 +3,11 @@
 require 'active_record'
 require 'fileutils'
 
+require_relative 'config'
 require_relative 'logger'
 
 module Raspishika
-  DB_FILE = File.expand_path '../data/db.sqlite3', __dir__
+  DB_FILE = File.join File.expand_path('..', __dir__), Config[:database][:file]
   BACKUP_DIR = File.expand_path '../data/backups', __dir__
 
   def self.backup_database

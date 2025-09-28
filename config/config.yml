@@ -9,6 +9,8 @@ bot:
 cache:
   # Minutes
   default_ttl: 30
+database:
+  file: data/db.sqlite3
 dev_bot:
   admin_chat_id: YOUR_ADMIN_CHAT_ID_HERE
   enabled: false
