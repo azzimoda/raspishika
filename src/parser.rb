@@ -23,8 +23,8 @@ module Raspishika
     MAX_RETRIES = Config[:parser][:max_retries]
     LONG_CACHE_TIME = 30 * 24 * 60 * 60 # 1 month
     BASE_URL = 'https://mnokol.tyuiu.ru'
-    DEPARTMENTS_PAGE_URL = "#{BASE_URL}/site/index.php?option=com_content&view=article&id=1582&Itemid=247"
-    TEACHERS_URL = "#{BASE_URL}/site/index.php?option=com_content&view=article&id=1247&Itemid=304"
+    DEPARTMENTS_PAGE_URL = 'https://mnokol.tyuiu.ru/site/index.php?option=com_content&view=article&id=1582&Itemid=247'
+    TEACHERS_URL = 'https://mnokol.tyuiu.ru/site/index.php?option=com_content&view=article&id=1247&Itemid=304'
     DEBUG_DIR = File.expand_path '../data/debug', __dir__
 
     FileUtils.mkdir_p DEBUG_DIR
@@ -93,19 +93,23 @@ module Raspishika
       end
     end
 
+    # Scrapes names of departments and links to their pages.
+    #
+    # @param unsafe_cache [Boolean] whether use unsafe caching; defaults to `false`
+    #
+    # @return [Hash] URLs by departments names
+    # @raise [RuntimeError] when fails to load page
     def fetch_departments(unsafe_cache: false)
       Cache.fetch :departments, expires_in: LONG_CACHE_TIME, file: true, unsafe: unsafe_cache do
         logger.info 'Fetching departments...'
 
         uri = URI.parse DEPARTMENTS_PAGE_URL
-        resp = Net::HTTP.start(uri.host, uri.port) { |http| http.request Net::HTTP::Get.new uri, generate_headers }
-
-        if resp.code.to_i != 200
-          logger.error 'Failed to load departments'
-          return
+        resp = Net::HTTP.start(uri.host, uri.port, use_ssl: true) do |http|
+          http.request Net::HTTP::Get.new(uri, generate_headers)
         end
+        raise "Failed to load departments: #{resp.inspect}" if resp.code.to_i != 200
 
-        Nokogiri::HTML(html).css('ul.mod-menu li.col-lg.col-md-6 a').map do |link|
+        Nokogiri::HTML(resp.body).css('ul.mod-menu li.col-lg.col-md-6 a').map do |link|
           name = html_to_text link
           next unless name.downcase.include?('отделение') || name.downcase == 'заочное обучение'
 
@@ -226,7 +230,15 @@ module Raspishika
       nil
     end
 
-    def scrape_schedule(url, teacher: false, **kwargs)
+    # Scrapes group's or teacher's schedule table from given URL.
+    #
+    # @param url [String] URL of schedule page
+    # @param teacher [Boolean] whether parse schedule as teacher's; defaults to false
+    # @param raise_on_failure [Boolean] whether raise exception when parser returned `nil`
+    #
+    # @return [Array] raw schedule as a HTML table
+    # @raise [RuntimeError] if failed to parse schedule and `raise_on_failure` is `true`
+    def scrape_schedule(url, teacher: false, raise_on_failure: true, **)
       logger.debug "URL: #{url}"
 
       html = nil
@@ -237,21 +249,30 @@ module Raspishika
           http.request Net::HTTP::Get.new(uri, generate_headers.tap { logger.debug it['User-Agent'] })
         end
         break resp if resp.code == '200'
-        raise "Failed to load page #{url}: #{resp.inspect}" if (retries += 1) > MAX_RETRIES
 
-        logger.warn "Failed to load page #{url}: #{resp.inspect}"
+        logger.warn "Failed to load schedule page #{url}: #{resp.inspect}"
+        if (retries += 1) > MAX_RETRIES
+          logger.error 'Out of retries'
+          raise "Failed to load schedule page: #{url}: #{resp.inspect}" if raise_on_failure
+
+          return
+        end
+
         logger.warn "Retrying... (#{retries}/#{MAX_RETRIES})"
         sleep 1
       end
 
-      html = resp.body.dup.force_encoding('Windows-1251')
-                 .encode('UTF-8', invalid: :replace, undef: :replace, replace: '')
+      html = fix_encoding resp.body.dup
       schedule = parse_schedule_table(html, teacher: teacher)
-      raise 'Failed to parse schedule' if schedule.nil? && kwargs[:raise_on_failure] == false
+      raise 'Failed to parse schedule' if schedule.nil? && raise_on_failure
 
       schedule
     ensure
       File.write(File.join(DEBUG_DIR, 'schedule.html'), html)
+    end
+
+    def fix_encoding(text)
+      text.force_encoding('Windows-1251').encode('UTF-8', invalid: :replace, undef: :replace, replace: '')
     end
 
     def fetch_teachers(cache: true)
