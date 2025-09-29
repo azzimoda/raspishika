@@ -18,16 +18,16 @@ module Raspishika
           Time.parse(chat.daily_sending_time).between? last_sending_time, current_time
         end
 
-        futures = chats.map do |chat|
-          Concurrent::Future.execute(executor: sending_thread_pool) { send_daily_notificaton chat }
+        groups = chats.group_by { |chat| [chat.department, chat.group] }
+        futures = groups.each_value.map do |chats|
+          Concurrent::Future.execute(executor: sending_thread_pool) { send_daily_notificaton_for_group chats }
         end
         futures.each(&:wait)
 
-        # TODO: Test it on production. yes
         msg_part = "Daily sending for #{chats.count} chats took"
         taken_time = Time.now - current_time
         logger.debug "#{msg_part} #{taken_time} seconds" if chats.any?
-        report "#{msg_part} more than a minute: #{taken_time.to_f / 60} min" if taken_time > 60
+        report "#{msg_part} more than a minute: #{(taken_time.to_f / 60).round(2)} min" if taken_time > 60
 
         last_sending_time = current_time
 
@@ -44,8 +44,38 @@ module Raspishika
 
     private
 
-    def send_daily_notificaton(chat)
-      send_week_schedule nil, chat, Session[chat]
+    def send_daily_notificaton_for_group(chats)
+      return if chats.empty?
+
+      logger.info "Sending daily schedule to #{chats.size} chats of group #{chats.first.group}..."
+
+      schedule = parser.fetch_schedule chats.first.group_info
+      chats.each { send_daily_notificaton_to_chat it, schedule }
+    rescue StandardError => e
+      msg = "Error while sending daily schedule: #{e.detailed_message}"
+      report msg, backtrace: e.backtrace.join("\n"), code: true
+      logger.error msg
+      logger.error e.backtrace.join("\n\t")
+    end
+
+    def send_daily_notificaton_to_chat(chat, schedule)
+      group_info = chat.group_info
+      make_photo = -> { Faraday::UploadIO.new(ImageGenerator.image_path(group_info: group_info), 'image/png') }
+
+      kb = make_update_inline_keyboard 'update_week', group_info[:group]
+      send_photo(chat_id: chat.tg_id, photo: make_photo.call, reply_markup: { inline_keyboard: kb }.to_json)
+      send_message(chat_id: chat.tg_id, text: "Расписание группы: *#{group_info[:group]}*", parse_mode: 'Markdown',
+                   reply_markup: :default)
+      return if schedule
+
+      send_message(
+        chat_id: chat.tg_id,
+        text: 'Не удалось обновить расписание, *картинка может быть не актуальной!* Попробуйте позже.',
+        parse_mode: 'Markdown',
+        reply_markup: :default
+      )
+      report("Failed to fetch schedule for #{group_info}", photo: make_photo.call, log: 20)
+
       logger.debug "Daily schedule sent to @#{chat.username} ##{chat.tg_id}"
     rescue Telegram::Bot::Exceptions::ResponseError => e
       case e.error_code
@@ -58,11 +88,6 @@ module Raspishika
           logger.error e.backtrace.join("\n\t")
         end
       end
-    rescue StandardError => e
-      msg = "Error while sending daily schedule: #{e.detailed_message}"
-      report msg, backtrace: e.backtrace.join("\n"), code: true
-      logger.error msg
-      logger.error e.backtrace.join("\n\t")
     end
 
     def schedule_pair_sending
@@ -103,11 +128,10 @@ module Raspishika
       end
       futures.each(&:wait)
 
-      # TODO: Test it on production. yes
       msg_part = "Pair sending for #{groups.size} groups (#{groups.each_value.sum(&:size)} chats) took"
       taken_time = Time.now - start_time
       logger.debug "#{msg_part} #{taken_time} seconds"
-      report "#{msg_part} more than a minute: #{taken_time.to_f / 60} min" if taken_time > 60
+      report "#{msg_part} more than a minute: #{(taken_time.to_f / 60).round(2)} min" if taken_time > 60
 
       sending_thread_pool.shutdown
       sending_thread_pool.wait_for_termination
