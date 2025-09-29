@@ -282,7 +282,7 @@ module Raspishika
         *Private chats:* #{Chat.where('tg_id NOT LIKE "-%"').count}
         *Group chats:* #{Chat.where('tg_id LIKE "-%"').count}
 
-        *Total groups:* #{Chat.all.group(:group).count}
+        *Total groups:* #{Chat.all.group(:group).to_a.size}
         *Top 5 groups by activeness:*
         ```
         #{top_groups.join("\n")}
@@ -354,7 +354,6 @@ module Raspishika
 
         #{daily_sending.join("\n")}
       MARKDOWN
-
     end
 
     def send_commands_statistics(period = 24 * 60 * 60)
